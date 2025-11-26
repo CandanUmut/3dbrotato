@@ -503,11 +503,15 @@
     let cameraYaw = Math.PI;
     let isDraggingCam = false;
     let lastCamX = 0;
+    let cameraShake = 0;
     let dayTime = 0;
+    let windTime = 0;
 
     // Işık ve gökyüzü
     let ambientLight, sunLight, starMaterial;
     let dayColor, nightColor;
+    let sunMesh, moonMesh;
+    let groundMaterial = null;
 
     // Perlin
     const Perlin = (() => {
@@ -589,6 +593,7 @@
     const bullets = [];
     const xpOrbs = [];
     const obstacles = []; // dağlar/ağaç/taş colliderları
+    const effects = [];   // görsel efektler (nova halkası vb.)
 
     let elapsedTime = 0;
     let killCount = 0;
@@ -598,6 +603,10 @@
     let spawnTimer = 0;
     let shootCooldown = 0;
     let pendingLevelUps = 0;
+
+    // Özel yetenekler
+    let novaInterval = 0;
+    let novaTimer = 0;
 
     const keyState = { up: false, down: false, left: false, right: false };
 
@@ -636,7 +645,7 @@
       playSound({ freqStart: 880, freqEnd: 620, duration: 0.08, volume: 0.45, type: "sawtooth" });
     }
     function sHit() {
-      playSound({ freqStart: 220, freqEnd: 110, duration: 0.12, volume: 0.5, type: "square" });
+      playSound({ freqStart: 260, freqEnd: 120, duration: 0.12, volume: 0.55, type: "square" });
     }
     function sPickup() {
       playSound({ freqStart: 520, freqEnd: 940, duration: 0.16, volume: 0.45, type: "triangle" });
@@ -692,6 +701,13 @@
         apply() { player.fireRate *= 1.35; }
       },
       {
+        id: "rail_1",
+        name: "Rail Accelerator",
+        tag: "Attack",
+        desc: "Mermi hızın %50, menzilin %25 artar.",
+        apply() { player.bulletSpeed *= 1.5; player.bulletLife *= 1.25; }
+      },
+      {
         id: "multi_1",
         name: "Tri-Shot",
         tag: "Attack",
@@ -718,6 +734,20 @@
         tag: "Attack",
         desc: "Etrafındaki düşmanlar saniyede 12 hasar yer.",
         apply() { player.auraDamage += 12; }
+      },
+      {
+        id: "nova_1",
+        name: "Nova Pulse Core",
+        tag: "Attack",
+        desc: "Her 7 sn'de bir çevrende Nova patlaması yapar.",
+        apply() {
+          if (novaInterval > 0) {
+            novaInterval = Math.max(novaInterval * 0.7, 3.5);
+          } else {
+            novaInterval = 7;
+            novaTimer = 7;
+          }
+        }
       },
       {
         id: "hp_1",
@@ -858,7 +888,7 @@
       scene.background = new THREE.Color(0x020617);
       scene.fog = new THREE.FogExp2(0x020617, 0.018);
 
-      dayColor = new THREE.Color(0x172554);
+      dayColor = new THREE.Color(0x1e293b);
       nightColor = new THREE.Color(0x020617);
 
       camera = new THREE.PerspectiveCamera(
@@ -890,6 +920,7 @@
       createTerrain();
       createObstacles();
       createStarField();
+      createSkyBodies();
       createPlayer();
 
       // Kamera drag
@@ -942,12 +973,12 @@
       pos.needsUpdate = true;
       groundGeo.computeVertexNormals();
 
-      const groundMat = new THREE.MeshStandardMaterial({
+      groundMaterial = new THREE.MeshStandardMaterial({
         vertexColors: true,
         metalness: 0.25,
         roughness: 0.9,
       });
-      const ground = new THREE.Mesh(groundGeo, groundMat);
+      const ground = new THREE.Mesh(groundGeo, groundMaterial);
       ground.rotation.x = -Math.PI / 2;
       ground.receiveShadow = true;
       scene.add(ground);
@@ -980,9 +1011,13 @@
 
       const y = terrainHeight(x, z);
       group.position.set(x, y + 2, z);
+
+      const scale = 0.8 + Math.random() * 0.9;
+      group.scale.set(scale, scale, scale);
+
       scene.add(group);
 
-      obstacles.push({ x, z, radius: 2.2, mesh: group, type: "tree" });
+      obstacles.push({ x, z, radius: 2.2 * scale, mesh: group, type: "tree", swayOffset: Math.random() * Math.PI * 2 });
     }
 
     function createRock(x, z) {
@@ -995,6 +1030,7 @@
       const rock = new THREE.Mesh(geo, mat);
       const y = terrainHeight(x, z);
       rock.position.set(x, y + 1, z);
+      rock.rotation.y = Math.random() * Math.PI * 2;
       scene.add(rock);
 
       obstacles.push({ x, z, radius: 1.5, mesh: rock, type: "rock" });
@@ -1044,6 +1080,26 @@
       });
       const stars = new THREE.Points(starGeo, starMaterial);
       scene.add(stars);
+    }
+
+    function createSkyBodies() {
+      const sunGeo = new THREE.SphereGeometry(10, 24, 24);
+      const sunMat = new THREE.MeshBasicMaterial({
+        color: 0xfacc15,
+        transparent: true,
+        opacity: 1
+      });
+      sunMesh = new THREE.Mesh(sunGeo, sunMat);
+      scene.add(sunMesh);
+
+      const moonGeo = new THREE.SphereGeometry(7, 24, 24);
+      const moonMat = new THREE.MeshBasicMaterial({
+        color: 0xe5e7eb,
+        transparent: true,
+        opacity: 0.9
+      });
+      moonMesh = new THREE.Mesh(moonGeo, moonMat);
+      scene.add(moonMesh);
     }
 
     function createPlayer() {
@@ -1255,9 +1311,11 @@
       enemies.forEach(e => scene.remove(e.mesh));
       bullets.forEach(b => scene.remove(b.mesh));
       xpOrbs.forEach(o => scene.remove(o.mesh));
+      effects.forEach(eff => scene.remove(eff.mesh));
       enemies.length = 0;
       bullets.length = 0;
       xpOrbs.length = 0;
+      effects.length = 0;
 
       player.x = 0;
       player.z = 0;
@@ -1284,6 +1342,7 @@
       if (player.mesh) {
         player.mesh.position.set(player.x, player.y, player.z);
         player.mesh.rotation.y = Math.PI;
+        player.mesh.scale.set(1, 1, 1);
       }
 
       elapsedTime = 0;
@@ -1296,6 +1355,10 @@
       pendingLevelUps = 0;
       cameraFollowSmooth = 0.14;
       dayTime = 0;
+      windTime = 0;
+      cameraShake = 0;
+      novaInterval = 0;
+      novaTimer = 0;
 
       hudBuild.textContent = "Mountains & Forest";
     }
@@ -1349,7 +1412,8 @@
         type: t,
         mesh,
         fireCooldown: 1.5 + Math.random(),
-        hopTimer: 0
+        hopTimer: 0,
+        hitFlash: 0
       });
     }
 
@@ -1531,6 +1595,7 @@
           const d = Math.hypot(player.x - e.x, player.z - e.z);
           if (d < 6) {
             e.hp -= player.auraDamage * dt;
+            e.hitFlash = 0.08;
             if (e.hp <= 0) killEnemy(i);
           }
         }
@@ -1540,6 +1605,16 @@
     function updateEnemies(dt) {
       for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
+
+        // Hit flash / scale punch
+        e.hitFlash = Math.max(0, e.hitFlash - dt);
+        if (e.hitFlash > 0) {
+          const s = 1 + e.hitFlash * 3;
+          e.mesh.scale.set(s, s, s);
+        } else {
+          e.mesh.scale.set(1, 1, 1);
+        }
+
         const dx = player.x - e.x;
         const dz = player.z - e.z;
         const dist = Math.hypot(dx, dz) || 1;
@@ -1597,6 +1672,7 @@
           let dmg = e.damage * dt;
           if (player.damageReduction) dmg *= (1 - player.damageReduction);
           player.hp -= dmg;
+          if (dmg > 0) cameraShake = Math.max(cameraShake, 0.1);
           if (player.hp <= 0) {
             player.hp = 0;
             sHit();
@@ -1637,6 +1713,8 @@
                 dmg *= 1.8;
               }
               e.hp -= dmg;
+              e.hitFlash = 0.16;
+              cameraShake = Math.min(cameraShake + 0.06, 0.25);
               sHit();
               if (player.pierce > 0 && b.remainingPierce > 0) {
                 b.remainingPierce--;
@@ -1656,6 +1734,7 @@
             let dmg = 16;
             if (player.damageReduction) dmg *= (1 - player.damageReduction);
             player.hp -= dmg;
+            cameraShake = Math.max(cameraShake, 0.17);
             sHit();
             scene.remove(b.mesh);
             bullets.splice(i, 1);
@@ -1768,6 +1847,26 @@
         starMaterial.opacity = 0.15 + (1 - mix) * 0.85;
       }
 
+      // Güneş & Ay mesh pozisyonları
+      const orbitalRadius = 260;
+      if (sunMesh) {
+        sunMesh.position.set(sunX * orbitalRadius, sunY * orbitalRadius * 0.8 + 40, 0);
+        sunMesh.material.opacity = clamp(lightStrength, 0.4, 1);
+      }
+      if (moonMesh) {
+        const moonAngle = angle + Math.PI;
+        const mY = Math.sin(moonAngle);
+        const mX = Math.cos(moonAngle);
+        moonMesh.position.set(mX * orbitalRadius, mY * orbitalRadius * 0.8 + 40, 0);
+        const moonVis = clamp(0.4 + (1 - lightStrength), 0.2, 1);
+        moonMesh.material.opacity = moonVis;
+      }
+
+      if (groundMaterial) {
+        groundMaterial.roughness = 0.85 - mix * 0.25;
+        groundMaterial.metalness = 0.25 + mix * 0.15;
+      }
+
       // HUD build text: fazı göster
       let phase;
       if (t < 0.2) phase = "Dawn";
@@ -1793,6 +1892,15 @@
       camera.position.x += (targetX - camera.position.x) * lerpFactor;
       camera.position.y += (targetY - camera.position.y) * lerpFactor;
       camera.position.z += (targetZ - camera.position.z) * lerpFactor;
+
+      // Kamera shake (vurgu için)
+      if (cameraShake > 0) {
+        const shake = cameraShake;
+        camera.position.x += (Math.random() - 0.5) * shake * 3;
+        camera.position.y += (Math.random() - 0.5) * shake * 2;
+        camera.position.z += (Math.random() - 0.5) * shake * 3;
+        cameraShake = Math.max(0, cameraShake - dt * 1.8);
+      }
 
       camera.lookAt(player.x, player.y + 2, player.z);
     }
@@ -1853,6 +1961,79 @@
       requestAnimationFrame(() => startScreen.classList.add("visible"));
 
       resetGame();
+    }
+
+    // Nova patlaması
+    function triggerNovaPulse() {
+      if (!scene) return;
+      const radius = 9;
+
+      // Hasar
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        const d = Math.hypot(player.x - e.x, player.z - e.z);
+        if (d <= radius) {
+          let dmg = 55 + level * 3;
+          e.hp -= dmg;
+          e.hitFlash = 0.18;
+          if (e.hp <= 0) {
+            killEnemy(i);
+          }
+        }
+      }
+
+      // Görsel halka
+      const ringGeo = new THREE.RingGeometry(radius * 0.15, radius, 64);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(player.x, terrainHeight(player.x, player.z) + 0.2, player.z);
+      scene.add(ring);
+      effects.push({
+        mesh: ring,
+        life: 0.6,
+        maxLife: 0.6,
+        type: "ring",
+      });
+
+      cameraShake = Math.max(cameraShake, 0.2);
+      playSound({ freqStart: 220, freqEnd: 80, duration: 0.3, volume: 0.6, type: "square" });
+      playSound({ freqStart: 1200, freqEnd: 420, duration: 0.25, volume: 0.45, type: "triangle" });
+    }
+
+    function updateEffects(dt) {
+      for (let i = effects.length - 1; i >= 0; i--) {
+        const eff = effects[i];
+        eff.life -= dt;
+        if (eff.life <= 0) {
+          scene.remove(eff.mesh);
+          effects.splice(i, 1);
+          continue;
+        }
+        const t = 1 - eff.life / eff.maxLife;
+        if (eff.type === "ring") {
+          const s = 1 + t * 0.8;
+          eff.mesh.scale.set(s, s, s);
+          eff.mesh.material.opacity = 0.9 * (1 - t);
+        }
+      }
+    }
+
+    function updateObstacles(dt) {
+      // Ağaçlara hafif rüzgar animasyonu
+      const swaySpeed = 1.4;
+      const swayStrength = 0.03;
+      for (const o of obstacles) {
+        if (o.type === "tree" && o.mesh) {
+          const t = windTime * swaySpeed + o.swayOffset;
+          o.mesh.rotation.z = Math.sin(t) * swayStrength;
+        }
+      }
     }
 
     // INPUT
@@ -1926,6 +2107,9 @@
           initAudio();
           tryJump();
         }
+        // İstersen Q/E ile kamera yaw da eklenebilir
+        if (k === "q" || k === "Q") cameraYaw -= 0.15;
+        if (k === "e" || k === "E") cameraYaw += 0.15;
       });
 
       window.addEventListener("keyup", (e) => {
@@ -1982,6 +2166,8 @@
       lastTime = now;
       if (dt > 0.05) dt = 0.05;
 
+      windTime += dt;
+
       if (gameState === "playing" && !isPausedForUpgrade) {
         elapsedTime += dt;
 
@@ -1997,11 +2183,21 @@
         updateBullets(dt);
         updateXpOrbs(dt);
         autoShoot(dt);
+
+        if (novaInterval > 0) {
+          novaTimer -= dt;
+          if (novaTimer <= 0) {
+            novaTimer = novaInterval;
+            triggerNovaPulse();
+          }
+        }
       }
 
       updateDayNight(dt);
+      updateObstacles(dt);
       updateCamera(dt);
       updateUI();
+      updateEffects(dt);
       renderer.render(scene, camera);
     }
 
