@@ -923,11 +923,13 @@
     // THREE INIT
     function initThree() {
       scene = new THREE.Scene();
+      // Gece koyu, gündüz gökyüzü daha açık mavi
       scene.background = new THREE.Color(0x020617);
-      scene.fog = new THREE.FogExp2(0x020617, 0.012);
-
-      dayColor = new THREE.Color(0x1f2937);
+      scene.fog = new THREE.FogExp2(0x020617, 0.010); // daha az yoğun fog
+      
+      dayColor = new THREE.Color(0x87ceeb);  // açık gökyüzü
       nightColor = new THREE.Color(0x020617);
+
 
       camera = new THREE.PerspectiveCamera(
         60,
@@ -995,59 +997,59 @@
     }
 
     function createTerrain() {
-      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 120, 120);
+      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 100, 100);
       const pos = groundGeo.attributes.position;
       const colors = new Float32Array(pos.count * 3);
-
+    
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
         const z = pos.getZ(i);
         const y = terrainHeight(x, z);
         pos.setY(i, y);
-      
-        // Desert palette (kum tonları)
+    
+        // --- ÇÖL / KUM PALETİ + ÇOK DAHA PARLAK ---
         let r, g, b;
-      
+    
         if (y < -4) {
-          // En alçak yerler: biraz daha koyu, taşlı/kuru zemin
-          r = 0.55; g = 0.46; b = 0.32;   // koyu kum / toprak
+          // En alçak: biraz koyu kum
+          r = 0.80; g = 0.70; b = 0.55;
         } else if (y < 4) {
-          // Ana zemin: klasik çöl kumu
-          r = 0.82; g = 0.72; b = 0.52;   // sıcak sarımsı kum
+          // Ana zemin: belirgin açık kum
+          r = 0.93; g = 0.84; b = 0.66;
         } else if (y < 10) {
-          // Tepelere doğru: daha açık, güneş yemiş kum
-          r = 0.88; g = 0.80; b = 0.60;   // açık kum
+          // Tepeler: güneşte iyice açılmış kum
+          r = 0.98; g = 0.91; b = 0.75;
         } else {
-          // En yüksekler: taş/dağ rengi kalsın
-          r = 0.65; g = 0.63; b = 0.66;   // kayalık gri
+          // En yüksekler: kayalık ton
+          r = 0.75; g = 0.72; b = 0.70;
         }
-      
+    
         colors[i * 3 + 0] = r;
         colors[i * 3 + 1] = g;
         colors[i * 3 + 2] = b;
       }
-
-
+    
       groundGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
       pos.needsUpdate = true;
       groundGeo.computeVertexNormals();
-
+    
       groundMaterial = new THREE.MeshStandardMaterial({
         vertexColors: true,
-        metalness: 0.22,
-        roughness: 0.88,
+        metalness: 0.1,
+        roughness: 0.8,
       });
+    
       const ground = new THREE.Mesh(groundGeo, groundMaterial);
       ground.rotation.x = -Math.PI / 2;
       ground.receiveShadow = true;
       scene.add(ground);
-
-      // Hafif grid hissi
-      const grid = new THREE.GridHelper(WORLD_SIZE, 50, 0x1f2937, 0x0f172a);
-      grid.position.y = 0.12;
-      grid.material.opacity = 0.12;
-      grid.material.transparent = true;
+    
+      // Grid’i daha hafif yapalım ki kumdan daha koyu kalmasın
+      const grid = new THREE.GridHelper(WORLD_SIZE, 40, 0x334155, 0x1e293b);
+      grid.position.y = 0.05;
       scene.add(grid);
+    }
+
 
       // Su yüzeyi (göller/nehir hissi)
       const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE * 1.4, WORLD_SIZE * 1.4);
@@ -1494,7 +1496,9 @@
       shootCooldown = 0;
       pendingLevelUps = 0;
       cameraFollowSmooth = 0.16;
-      dayTime = 0;
+      // Güneş tepede başlasın, ortam direkt aydınlık gelsin
+      dayTime = DAY_LENGTH * 0.3;
+
       windTime = 0;
       cameraShake = 0;
       novaInterval = 0;
