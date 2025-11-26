@@ -18,9 +18,7 @@
       --shadow: 0 18px 40px rgba(0, 0, 0, 0.8);
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     html, body {
       margin: 0;
@@ -335,7 +333,7 @@
       touch-action: none;
     }
 
-    /* Jump button (mobil) */
+    /* Jump button (mobile) */
     #btn-jump {
       position: absolute;
       right: 18px;
@@ -362,12 +360,8 @@
     }
 
     @media (max-width: 768px) {
-      #xp-wrapper {
-        width: 92%;
-      }
-      .hud-pill {
-        padding: 3px 8px;
-      }
+      #xp-wrapper { width: 92%; }
+      .hud-pill { padding: 3px 8px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -405,7 +399,7 @@
         </div>
         <div class="hud-pill">
           <span class="hud-label">BUILD</span>
-          <span class="hud-value" id="hud-build">3D Terrain</span>
+          <span class="hud-value" id="hud-build">Mountains &amp; Forest</span>
         </div>
       </div>
     </div>
@@ -420,7 +414,7 @@
 
     <!-- Hint -->
     <div id="hint">
-      PC: WASD / ok tuşları, fareyi sürükleyerek etrafa bak · Space: zıpla<br/>
+      PC: WASD / ok tuşları, fareyi sürükleyerek etrafına bak · Space: zıpla (engelleri aş)<br/>
       Mobil: sol ortadaki joystick + sağ alttaki zıplama butonu. Level-up olduğunda upgrade seç.
     </div>
 
@@ -429,8 +423,8 @@
       <div class="screen-card">
         <h1 class="screen-title">Nova Arena 3D</h1>
         <p class="screen-sub">
-          Perlin noise ile üretilmiş bir arazide, gece-gündüz döngüsü altında hayatta kal.
-          Etrafına bak, zıpla, bacaklı düşman sürülerini temizle ve build'ini güçlendir.
+          Dağlar, ağaçlar ve kayalarla dolu, Perlin noise ile üretilmiş bir arazide hayatta kal.
+          Etrafına bak, zıpla, engelleri aş, sürüler hâlinde gelen düşmanları parçala ve build'ini büyüt.
         </p>
         <div class="screen-toggle">
           <label>
@@ -449,7 +443,7 @@
       <div class="screen-card">
         <h2 class="screen-title">Oyun Bitti</h2>
         <p class="screen-sub">
-          Güzel bir run oldu. İstersen farklı upgrade kombinasyonları deneyerek tekrar oyna.
+          Güzel bir run oldu. İstersen farklı upgrade kombinasyonları ve rotalar deneyerek tekrar oyna.
         </p>
         <div class="screen-row">
           <span>Toplam süre</span><span id="stat-time">00:00</span>
@@ -493,8 +487,11 @@
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 
   <script>
-    // === TEMEL SABİTLER / DURUM ===
+    // === WORLD CONSTANTS ===
     const WORLD_SIZE = 260;
+    const DAY_LENGTH = 40; // saniye (daha belirgin gece-gündüz)
+    const OBSTACLE_COUNT_TREES = 140;
+    const OBSTACLE_COUNT_ROCKS = 70;
 
     let scene, camera, renderer;
     let lastTime = performance.now();
@@ -502,21 +499,20 @@
     let isPausedForUpgrade = false;
 
     // Kamera & gün döngüsü
-    let cameraFollowSmooth = 0.12;
-    let cameraYaw = Math.PI; // etrafa bakma için
+    let cameraFollowSmooth = 0.14;
+    let cameraYaw = Math.PI;
     let isDraggingCam = false;
     let lastCamX = 0;
     let dayTime = 0;
-    const DAY_LENGTH = 120; // saniye
 
-    // Aydınlatma ve gökyüzü
+    // Işık ve gökyüzü
     let ambientLight, sunLight, starMaterial;
+    let dayColor, nightColor;
 
-    // Perlin noise
+    // Perlin
     const Perlin = (() => {
       const permutation = [];
       for (let i = 0; i < 256; i++) permutation[i] = i;
-      // shuffle
       for (let i = 255; i > 0; i--) {
         const j = (Math.random() * (i + 1)) | 0;
         [permutation[i], permutation[j]] = [permutation[j], permutation[i]];
@@ -555,23 +551,25 @@
     })();
 
     function terrainHeight(x, z) {
-      const s1 = 0.03;
-      const s2 = 0.08;
-      const h1 = Perlin.noise(x * s1, z * s1) * 4;
-      const h2 = Perlin.noise(x * s2 + 100, z * s2 + 100) * 2;
-      return h1 + h2 - 4; // biraz aşağı shift
+      const s1 = 0.015;
+      const s2 = 0.045;
+      const h1 = Perlin.noise(x * s1, z * s1) * 18;
+      const h2 = Perlin.noise(x * s2 + 100, z * s2 + 100) * 6;
+      return h1 + h2 - 10;
     }
 
+    // Player
     const player = {
       x: 0,
       z: 0,
       y: 2,
-      radius: 1.3,
+      radius: 1.4,
       speed: 18,
       hp: 100,
       maxHp: 100,
       regen: 0,
       damage: 26,
+      critChance: 0,
       fireRate: 2.6,
       bulletSpeed: 42,
       bulletLife: 3,
@@ -579,12 +577,18 @@
       mesh: null,
       vy: 0,
       jumpOffset: 0,
-      onGround: true
+      onGround: true,
+      multiShot: 1,
+      pierce: 0,
+      auraDamage: 0,
+      dashPower: 0,
+      damageReduction: 0
     };
 
     const enemies = [];
     const bullets = [];
     const xpOrbs = [];
+    const obstacles = []; // dağlar/ağaç/taş colliderları
 
     let elapsedTime = 0;
     let killCount = 0;
@@ -606,41 +610,46 @@
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       audioCtx = new AC();
-      audioCtx.resume && audioCtx.resume();
+      if (audioCtx.resume) audioCtx.resume();
     }
 
-    function playBeep(freq, duration, volume) {
+    function playSound({ freqStart = 440, freqEnd = 440, duration = 0.12, volume = 0.4, type = "square" }) {
       if (!audioCtx || !soundEnabled) return;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      osc.type = "square";
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(volume, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      const now = audioCtx.currentTime;
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freqStart, now);
+      osc.frequency.linearRampToValueAtTime(freqEnd, now + duration * 0.9);
+
+      gain.gain.setValueAtTime(volume, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
       osc.connect(gain);
       gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + duration);
+      osc.start(now);
+      osc.stop(now + duration);
     }
 
-    function playShoot() {
-      playBeep(780, 0.09, 0.4);
+    function sShoot() {
+      playSound({ freqStart: 880, freqEnd: 620, duration: 0.08, volume: 0.45, type: "sawtooth" });
     }
-    function playPickup() {
-      playBeep(540, 0.12, 0.45);
+    function sHit() {
+      playSound({ freqStart: 220, freqEnd: 110, duration: 0.12, volume: 0.5, type: "square" });
     }
-    function playHit() {
-      playBeep(160, 0.1, 0.5);
+    function sPickup() {
+      playSound({ freqStart: 520, freqEnd: 940, duration: 0.16, volume: 0.45, type: "triangle" });
     }
-    function playLevelUp() {
-      playBeep(880, 0.14, 0.55);
-      setTimeout(() => playBeep(1180, 0.14, 0.5), 90);
+    function sLevel() {
+      playSound({ freqStart: 700, freqEnd: 1100, duration: 0.12, volume: 0.5, type: "triangle" });
+      setTimeout(() => playSound({ freqStart: 1100, freqEnd: 1400, duration: 0.12, volume: 0.45, type: "triangle" }), 110);
     }
-    function playJump() {
-      playBeep(660, 0.08, 0.4);
+    function sJump() {
+      playSound({ freqStart: 480, freqEnd: 820, duration: 0.18, volume: 0.4, type: "triangle" });
     }
 
-    // UI elemanları
+    // UI
     const hudHp = document.getElementById("hud-hp");
     const hudLevel = document.getElementById("hud-level");
     const hudKills = document.getElementById("hud-kills");
@@ -669,7 +678,6 @@
     const joystickBase = document.getElementById("joystick-base");
     const joystickKnob = document.getElementById("joystick-knob");
     let joystickActive = false;
-    let joystickCenter = { x: 0, y: 0 };
     let joystickVec = { x: 0, z: 0 };
 
     // Upgrades
@@ -680,68 +688,89 @@
         id: "fire_rate_1",
         name: "Rapid Fire",
         tag: "Attack",
-        desc: "Ateş hızın %30 artar.",
-        apply() { player.fireRate *= 1.3; }
+        desc: "Ateş hızın %35 artar.",
+        apply() { player.fireRate *= 1.35; }
       },
       {
-        id: "fire_rate_2",
-        name: "Bullet Storm",
+        id: "multi_1",
+        name: "Tri-Shot",
         tag: "Attack",
-        desc: "Ateş hızın %20 artar, mermi ömrü +1s.",
-        apply() { player.fireRate *= 1.2; player.bulletLife += 1; }
+        desc: "Üçlü atış yaparsın. DPS ciddi artar.",
+        apply() { player.multiShot = Math.max(player.multiShot, 3); }
       },
       {
-        id: "damage_1",
-        name: "Power Shot",
+        id: "pierce_1",
+        name: "Piercing Rounds",
         tag: "Attack",
-        desc: "Hasarın %35 artar.",
-        apply() { player.damage *= 1.35; }
+        desc: "Mermilerin iki düşmandan geçebilir.",
+        apply() { player.pierce = Math.max(player.pierce, 2); }
       },
       {
-        id: "damage_2",
+        id: "crit_1",
         name: "Critical Core",
         tag: "Attack",
-        desc: "Hasarın %20 artar, kritik ihtimali eklenir.",
-        apply() { player.damage *= 1.2; player.critChance = (player.critChance || 0) + 0.15; }
+        desc: "Hasarın %20 artar, %20 kritik ihtimali kazanırsın.",
+        apply() { player.damage *= 1.2; player.critChance = (player.critChance || 0) + 0.2; }
+      },
+      {
+        id: "aura_1",
+        name: "Plasma Aura",
+        tag: "Attack",
+        desc: "Etrafındaki düşmanlar saniyede 12 hasar yer.",
+        apply() { player.auraDamage += 12; }
       },
       {
         id: "hp_1",
         name: "Titan Shell",
         tag: "Defense",
-        desc: "Max HP +35, anında +25 HP.",
-        apply() { player.maxHp += 35; player.hp = Math.min(player.maxHp, player.hp + 25); }
+        desc: "Max HP +40, anında +30 HP.",
+        apply() { player.maxHp += 40; player.hp = Math.min(player.maxHp, player.hp + 30); }
       },
       {
         id: "regen_1",
         name: "Nanobot Regen",
         tag: "Defense",
-        desc: "Saniyede +1.8 HP yenilenme.",
-        apply() { player.regen += 1.8; }
+        desc: "Saniyede +2.2 HP yenilenme.",
+        apply() { player.regen += 2.2; }
+      },
+      {
+        id: "shield_1",
+        name: "Phase Shield",
+        tag: "Defense",
+        desc: "Yediğin hasar %18 azalır.",
+        apply() { player.damageReduction = (player.damageReduction || 0) + 0.18; }
       },
       {
         id: "speed_1",
         name: "Vector Boots",
         tag: "Utility",
-        desc: "Hareket hızın %25 artar.",
-        apply() { player.speed *= 1.25; }
+        desc: "Hareket hızın %30 artar.",
+        apply() { player.speed *= 1.30; }
       },
       {
         id: "pickup_1",
         name: "Magnet Core",
         tag: "Utility",
-        desc: "XP toplama yarıçapın %40 artar.",
-        apply() { player.pickupRadius *= 1.4; }
+        desc: "XP toplama yarıçapın %45 artar.",
+        apply() { player.pickupRadius *= 1.45; }
+      },
+      {
+        id: "dash_1",
+        name: "Blink Dash",
+        tag: "Utility",
+        desc: "Dash gücü eklenir (joystick ile kısa burst).",
+        apply() { player.dashPower = Math.max(player.dashPower, 26); }
       },
       {
         id: "control_1",
         name: "Drift Thrusters",
         tag: "Utility",
         desc: "Kamera takibi ve kontrol daha yumuşak.",
-        apply() { cameraFollowSmooth = 0.16; }
+        apply() { cameraFollowSmooth = 0.18; }
       }
     ];
 
-    // Yardımcılar
+    // Helpers
     function clamp(v, min, max) {
       return v < min ? min : v > max ? max : v;
     }
@@ -756,6 +785,12 @@
     function normalize2(x, z) {
       const len = Math.hypot(x, z) || 1;
       return { x: x / len, z: z / len };
+    }
+
+    function rotate2D(x, z, angle) {
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      return { x: x * c - z * s, z: x * s + z * c };
     }
 
     function sampleUpgrades(n) {
@@ -780,7 +815,7 @@
       isPausedForUpgrade = true;
       pendingLevelUps--;
 
-      playLevelUp();
+      sLevel();
 
       currentUpgradeChoices = sampleUpgrades(3);
       upgradeOptions.innerHTML = "";
@@ -817,11 +852,14 @@
       }, 150);
     }
 
-    // === THREE SAHNE ===
+    // THREE INIT
     function initThree() {
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x020617);
-      scene.fog = new THREE.FogExp2(0x020617, 0.015);
+      scene.fog = new THREE.FogExp2(0x020617, 0.018);
+
+      dayColor = new THREE.Color(0x172554);
+      nightColor = new THREE.Color(0x020617);
 
       camera = new THREE.PerspectiveCamera(
         60,
@@ -829,7 +867,7 @@
         0.1,
         800
       );
-      camera.position.set(0, 50, 60);
+      camera.position.set(0, 55, 70);
       camera.lookAt(0, 0, 0);
 
       renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -838,32 +876,25 @@
       renderer.outputEncoding = THREE.sRGBEncoding;
       document.getElementById("game-root").appendChild(renderer.domElement);
 
-      // Işıklar
-      ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
       scene.add(ambientLight);
 
-      sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
-      sunLight.position.set(40, 70, 20);
-      sunLight.castShadow = false;
+      sunLight = new THREE.DirectionalLight(0xffffff, 1.6);
+      sunLight.position.set(60, 80, 20);
       scene.add(sunLight);
 
-      const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.6);
-      rimLight.position.set(-60, 40, -40);
-      scene.add(rimLight);
+      const backLight = new THREE.DirectionalLight(0x38bdf8, 0.6);
+      backLight.position.set(-60, 40, -40);
+      scene.add(backLight);
 
-      // Arazi
       createTerrain();
-
-      // Yıldızlar
+      createObstacles();
       createStarField();
-
-      // Player
       createPlayer();
 
       // Kamera drag
       renderer.domElement.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;
-        // UI'ye tıklamadığından emin ol
         if (e.target !== renderer.domElement) return;
         isDraggingCam = true;
         lastCamX = e.clientX;
@@ -874,30 +905,45 @@
         lastCamX = e.clientX;
         cameraYaw -= dx * 0.004;
       });
-      window.addEventListener("pointerup", () => {
-        isDraggingCam = false;
-      });
-      window.addEventListener("pointercancel", () => {
-        isDraggingCam = false;
-      });
+      window.addEventListener("pointerup", () => { isDraggingCam = false; });
+      window.addEventListener("pointercancel", () => { isDraggingCam = false; });
 
       window.addEventListener("resize", onWindowResize);
     }
 
     function createTerrain() {
-      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 80, 80);
+      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 100, 100);
       const pos = groundGeo.attributes.position;
+      const colors = new Float32Array(pos.count * 3);
+
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
         const z = pos.getZ(i);
         const y = terrainHeight(x, z);
         pos.setY(i, y);
+
+        // Yükseğe göre renk: vadi koyu yeşil, orta lime, tepe taş rengi
+        let r, g, b;
+        if (y < -4) {
+          r = 0.03; g = 0.3; b = 0.18;
+        } else if (y < 4) {
+          r = 0.08; g = 0.55; b = 0.26;
+        } else if (y < 10) {
+          r = 0.3; g = 0.56; b = 0.32;
+        } else {
+          r = 0.6; g = 0.6; b = 0.65;
+        }
+        colors[i * 3 + 0] = r;
+        colors[i * 3 + 1] = g;
+        colors[i * 3 + 2] = b;
       }
+
+      groundGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
       pos.needsUpdate = true;
       groundGeo.computeVertexNormals();
 
       const groundMat = new THREE.MeshStandardMaterial({
-        color: 0x14532d,
+        vertexColors: true,
         metalness: 0.25,
         roughness: 0.9,
       });
@@ -906,10 +952,77 @@
       ground.receiveShadow = true;
       scene.add(ground);
 
-      // Hafif grid overlay (yüksekliğe bakmadan)
       const grid = new THREE.GridHelper(WORLD_SIZE, 40, 0x38bdf8, 0x111827);
-      grid.position.y = 0.1;
+      grid.position.y = 0.15;
       scene.add(grid);
+    }
+
+    function createTree(x, z) {
+      const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 4, 6);
+      const trunkMat = new THREE.MeshStandardMaterial({
+        color: 0x4b2e19,
+        roughness: 0.9,
+      });
+      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+
+      const crownGeo = new THREE.SphereGeometry(1.6, 10, 10);
+      const crownMat = new THREE.MeshStandardMaterial({
+        color: 0x22c55e,
+        emissive: 0x166534,
+        emissiveIntensity: 0.4,
+      });
+      const crown = new THREE.Mesh(crownGeo, crownMat);
+      crown.position.y = 2.8;
+
+      const group = new THREE.Group();
+      group.add(trunk);
+      group.add(crown);
+
+      const y = terrainHeight(x, z);
+      group.position.set(x, y + 2, z);
+      scene.add(group);
+
+      obstacles.push({ x, z, radius: 2.2, mesh: group, type: "tree" });
+    }
+
+    function createRock(x, z) {
+      const geo = new THREE.DodecahedronGeometry(1.3 + Math.random() * 0.7);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x9ca3af,
+        roughness: 0.85,
+        metalness: 0.25,
+      });
+      const rock = new THREE.Mesh(geo, mat);
+      const y = terrainHeight(x, z);
+      rock.position.set(x, y + 1, z);
+      scene.add(rock);
+
+      obstacles.push({ x, z, radius: 1.5, mesh: rock, type: "rock" });
+    }
+
+    function createObstacles() {
+      const margin = 16;
+      let placed = 0;
+
+      // Trees
+      while (placed < OBSTACLE_COUNT_TREES) {
+        const x = (Math.random() - 0.5) * (WORLD_SIZE - margin * 2);
+        const z = (Math.random() - 0.5) * (WORLD_SIZE - margin * 2);
+
+        if (Math.hypot(x, z) < 10) continue; // spawn point temiz kalsın
+        createTree(x, z);
+        placed++;
+      }
+
+      // Rocks
+      let rocksPlaced = 0;
+      while (rocksPlaced < OBSTACLE_COUNT_ROCKS) {
+        const x = (Math.random() - 0.5) * (WORLD_SIZE - margin * 2);
+        const z = (Math.random() - 0.5) * (WORLD_SIZE - margin * 2);
+        if (Math.hypot(x, z) < 12) continue;
+        createRock(x, z);
+        rocksPlaced++;
+      }
     }
 
     function createStarField() {
@@ -924,7 +1037,7 @@
       starGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
       starMaterial = new THREE.PointsMaterial({
         color: 0xffffff,
-        size: 1.1,
+        size: 1.2,
         sizeAttenuation: true,
         transparent: true,
         opacity: 0.9
@@ -936,7 +1049,6 @@
     function createPlayer() {
       const group = new THREE.Group();
 
-      // Gövde (kapsül)
       const bodyGeo = new THREE.CylinderGeometry(0.9, 0.9, 3.6, 18);
       const bodyMat = new THREE.MeshStandardMaterial({
         color: 0x38bdf8,
@@ -948,7 +1060,6 @@
       const body = new THREE.Mesh(bodyGeo, bodyMat);
       group.add(body);
 
-      // Kafa
       const headGeo = new THREE.SphereGeometry(1.1, 20, 20);
       const headMat = new THREE.MeshStandardMaterial({
         color: 0x22c55e,
@@ -961,7 +1072,6 @@
       head.position.y = 2.3;
       group.add(head);
 
-      // Thruster
       const thrusterGeo = new THREE.ConeGeometry(0.9, 1.6, 16);
       const thrusterMat = new THREE.MeshStandardMaterial({
         color: 0xf97316,
@@ -975,7 +1085,6 @@
       thruster.rotation.x = Math.PI;
       group.add(thruster);
 
-      // Kanatlar
       const wingGeo = new THREE.BoxGeometry(0.4, 1.8, 3.6);
       const wingMat = new THREE.MeshStandardMaterial({
         color: 0x0ea5e9,
@@ -1011,13 +1120,13 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // === DÜŞMAN MODELLEME ===
+    // ENEMIES
     function createEnemyMesh(type) {
       const g = new THREE.Group();
       let radius = 1.3;
 
       if (type === 0) {
-        // Walker (insansı, 2 bacak)
+        // Walker
         const torsoGeo = new THREE.BoxGeometry(1, 1.8, 0.8);
         const torsoMat = new THREE.MeshStandardMaterial({
           color: 0xf97316,
@@ -1044,7 +1153,7 @@
 
         radius = 1.3;
       } else if (type === 1) {
-        // Crawler (4 ayaklı yaratık)
+        // Crawler
         const bodyGeo = new THREE.BoxGeometry(1.8, 0.8, 1.2);
         const bodyMat = new THREE.MeshStandardMaterial({
           color: 0x22c55e,
@@ -1082,7 +1191,7 @@
 
         radius = 1.4;
       } else if (type === 2) {
-        // Sentinel (uzun gözetleyici)
+        // Sentinel
         const baseGeo = new THREE.CylinderGeometry(0.7, 1.2, 2.6, 12);
         const baseMat = new THREE.MeshStandardMaterial({
           color: 0x6366f1,
@@ -1109,7 +1218,7 @@
 
         radius = 1.2;
       } else {
-        // Hopper (küçük zıplayan böcek)
+        // Hopper
         const bodyGeo = new THREE.SphereGeometry(0.9, 14, 14);
         const bodyMat = new THREE.MeshStandardMaterial({
           color: 0x0ea5e9,
@@ -1141,7 +1250,7 @@
       return { mesh: g, radius };
     }
 
-    // === GAME RESET ===
+    // GAME RESET
     function resetGame() {
       enemies.forEach(e => scene.remove(e.mesh));
       bullets.forEach(b => scene.remove(b.mesh));
@@ -1159,16 +1268,22 @@
       player.maxHp = 100;
       player.regen = 0;
       player.damage = 26;
+      player.critChance = 0;
       player.fireRate = 2.6;
       player.bulletSpeed = 42;
       player.bulletLife = 3;
       player.pickupRadius = 7.5;
-      player.critChance = 0;
+      player.multiShot = 1;
+      player.pierce = 0;
+      player.auraDamage = 0;
+      player.dashPower = 0;
+      player.damageReduction = 0;
 
       const groundY = terrainHeight(player.x, player.z);
       player.y = groundY + 2.2;
       if (player.mesh) {
         player.mesh.position.set(player.x, player.y, player.z);
+        player.mesh.rotation.y = Math.PI;
       }
 
       elapsedTime = 0;
@@ -1176,15 +1291,16 @@
       level = 1;
       xp = 0;
       xpNeeded = 10;
-      spawnTimer = 0.5;
+      spawnTimer = 0.8;
       shootCooldown = 0;
       pendingLevelUps = 0;
-      cameraFollowSmooth = 0.12;
+      cameraFollowSmooth = 0.14;
+      dayTime = 0;
 
-      hudBuild.textContent = "3D Terrain";
+      hudBuild.textContent = "Mountains & Forest";
     }
 
-    // === ENEMIES / BULLETS / XP ===
+    // SPAWNS
     function spawnEnemy() {
       const angle = Math.random() * Math.PI * 2;
       const dist = 35 + Math.random() * 50;
@@ -1195,31 +1311,31 @@
       z = clamp(z, -WORLD_SIZE / 2 + 6, WORLD_SIZE / 2 - 6);
 
       const t = Math.floor(Math.random() * 4);
-
       const { mesh, radius } = createEnemyMesh(t);
+
       const groundY = terrainHeight(x, z);
-      mesh.position.set(x, groundY + 1.4, z);
+      const baseY = t === 2 ? groundY + 1.9 : groundY + 1.4;
+      mesh.position.set(x, baseY, z);
       scene.add(mesh);
 
-      const timeFactor = 1 + elapsedTime / 180;
+      const timeFactor = 1 + elapsedTime / 160;
 
-      // Kolay kesilsin diye düşük HP
-      let baseHp = 16 * timeFactor;
+      let baseHp = 18 * timeFactor;
       let baseSpeed = 9;
-      let damage = 8 * timeFactor;
+      let damage = 10 * timeFactor;
 
-      if (t === 1) { // crawler
-        baseHp = 18 * timeFactor;
-        baseSpeed = 11;
-        damage = 9 * timeFactor;
-      } else if (t === 2) { // sentinel
+      if (t === 1) {
         baseHp = 20 * timeFactor;
+        baseSpeed = 11;
+        damage = 11 * timeFactor;
+      } else if (t === 2) {
+        baseHp = 26 * timeFactor;
         baseSpeed = 7;
-        damage = 12 * timeFactor;
-      } else if (t === 3) { // hopper
-        baseHp = 12 * timeFactor;
-        baseSpeed = 12;
-        damage = 10 * timeFactor;
+        damage = 14 * timeFactor;
+      } else if (t === 3) {
+        baseHp = 14 * timeFactor;
+        baseSpeed = 14;
+        damage = 11 * timeFactor;
       }
 
       enemies.push({
@@ -1237,7 +1353,7 @@
       });
     }
 
-    function spawnBullet(dirX, dirZ, fromPlayer = true, origin = null, speedOverride = null) {
+    function spawnBullet(dirX, dirZ, fromPlayer = true, origin = null, speedOverride = null, pierceCount = 0) {
       const n = normalize2(dirX, dirZ);
       const geo = new THREE.SphereGeometry(fromPlayer ? 0.28 : 0.22, 10, 10);
       const mat = new THREE.MeshStandardMaterial({
@@ -1251,13 +1367,11 @@
 
       const startX = origin ? origin.x : player.x;
       const startZ = origin ? origin.z : player.z;
-      const startY = origin
-        ? terrainHeight(origin.x, origin.z) + 2
-        : player.y;
+      const groundY = terrainHeight(startX, startZ);
 
       mesh.position.set(
         startX + n.x * 1.8,
-        startY,
+        groundY + (fromPlayer ? 2.2 : 2),
         startZ + n.z * 1.8
       );
       scene.add(mesh);
@@ -1273,9 +1387,10 @@
         life: fromPlayer ? player.bulletLife : 2.4,
         mesh,
         fromPlayer,
+        remainingPierce: pierceCount
       });
 
-      if (fromPlayer) playShoot();
+      if (fromPlayer) sShoot();
     }
 
     function spawnXpOrb(x, z) {
@@ -1308,16 +1423,39 @@
       killCount++;
     }
 
-    // === UPDATE ===
+    // PLAYER
     function tryJump() {
       if (!player.onGround || gameState !== "playing") return;
-      player.vy = 18;
+      player.vy = 20;
       player.onGround = false;
-      playJump();
+      sJump();
+    }
+
+    function applyObstacleCollision(newPos) {
+      // Zıplama belirli yüksekliğin üstündeyse collider ignore (üzerinden atlar)
+      const ignore = player.jumpOffset > 1.4;
+      if (ignore) return newPos;
+
+      let px = newPos.x;
+      let pz = newPos.z;
+
+      for (const o of obstacles) {
+        const dx = px - o.x;
+        const dz = pz - o.z;
+        const dist = Math.hypot(dx, dz);
+        const minDist = player.radius + o.radius;
+        if (dist < minDist && dist > 0.0001) {
+          const overlap = minDist - dist;
+          const nx = dx / dist;
+          const nz = dz / dist;
+          px += nx * overlap;
+          pz += nz * overlap;
+        }
+      }
+      return { x: px, z: pz };
     }
 
     function updatePlayer(dt) {
-      // Kamera bazlı yön
       const forwardVec = normalize2(
         player.x - camera.position.x,
         player.z - camera.position.z
@@ -1331,9 +1469,16 @@
       if (keyState.up) localZ += 1;
       if (keyState.down) localZ -= 1;
 
-      // Joystick'i de ekle
+      // joystick
       localX += joystickVec.x;
       localZ += joystickVec.z;
+
+      // dash
+      if (player.dashPower && joystickActive && player.onGround) {
+        const dashStrength = player.dashPower * dt * 6;
+        localX *= dashStrength;
+        localZ *= dashStrength;
+      }
 
       if (localX !== 0 || localZ !== 0) {
         const len = Math.hypot(localX, localZ) || 1;
@@ -1343,17 +1488,20 @@
         const moveXWorld = forwardVec.x * localZ + rightVec.x * localX;
         const moveZWorld = forwardVec.z * localZ + rightVec.z * localX;
 
-        player.x += moveXWorld * player.speed * dt;
-        player.z += moveZWorld * player.speed * dt;
+        let newX = player.x + moveXWorld * player.speed * dt;
+        let newZ = player.z + moveZWorld * player.speed * dt;
+
+        newX = clamp(newX, -WORLD_SIZE / 2 + 3, WORLD_SIZE / 2 - 3);
+        newZ = clamp(newZ, -WORLD_SIZE / 2 + 3, WORLD_SIZE / 2 - 3);
+
+        const collidedPos = applyObstacleCollision({ x: newX, z: newZ });
+        player.x = collidedPos.x;
+        player.z = collidedPos.z;
 
         const angle = Math.atan2(moveXWorld, moveZWorld);
         if (player.mesh) player.mesh.rotation.y = angle;
       }
 
-      player.x = clamp(player.x, -WORLD_SIZE / 2 + 3, WORLD_SIZE / 2 - 3);
-      player.z = clamp(player.z, -WORLD_SIZE / 2 + 3, WORLD_SIZE / 2 - 3);
-
-      // Zıplama / yer çekimi
       const groundY = terrainHeight(player.x, player.z) + 2.2;
       player.vy -= 36 * dt;
       player.jumpOffset += player.vy * dt;
@@ -1375,6 +1523,18 @@
       if (player.regen > 0) {
         player.hp = clamp(player.hp + player.regen * dt, 0, player.maxHp);
       }
+
+      // Aura damage
+      if (player.auraDamage > 0) {
+        for (let i = enemies.length - 1; i >= 0; i--) {
+          const e = enemies[i];
+          const d = Math.hypot(player.x - e.x, player.z - e.z);
+          if (d < 6) {
+            e.hp -= player.auraDamage * dt;
+            if (e.hp <= 0) killEnemy(i);
+          }
+        }
+      }
     }
 
     function updateEnemies(dt) {
@@ -1389,17 +1549,14 @@
         let vz = dir.z * e.speed;
 
         if (e.type === 0) {
-          // Walker: insansı, yaklaşırken hafif zigzag
           const side = normalize2(-dir.z, dir.x);
           const sway = Math.sin(elapsedTime * 4 + i) * 0.6;
           vx += side.x * e.speed * 0.4 * sway;
           vz += side.z * e.speed * 0.4 * sway;
         } else if (e.type === 1) {
-          // Crawler: hızlı, düz koşar
           vx *= 1.6;
           vz *= 1.6;
         } else if (e.type === 2) {
-          // Sentinel: orta mesafede durup ateş eder
           if (dist > 22) {
             vx *= 1.2;
             vz *= 1.2;
@@ -1410,21 +1567,18 @@
             vx = 0;
             vz = 0;
           }
-
           e.fireCooldown -= dt;
           if (e.fireCooldown <= 0 && dist < 50) {
             spawnBullet(dx, dz, false, { x: e.x, z: e.z }, 28);
             e.fireCooldown = 2.2 + Math.random() * 1.4;
           }
         } else if (e.type === 3) {
-          // Hopper: zıplayarak yaklaşır
           e.hopTimer -= dt;
           if (e.hopTimer <= 0) {
-            const hopStrength = 12;
             const hopDir = normalize2(dx, dz);
             vx = hopDir.x * (e.speed * 2.4);
             vz = hopDir.z * (e.speed * 2.4);
-            e.hopTimer = 1.4 + Math.random();
+            e.hopTimer = 1.2 + Math.random();
           }
         }
 
@@ -1440,17 +1594,15 @@
 
         const dPlayer = Math.hypot(player.x - e.x, player.z - e.z);
         if (dPlayer < player.radius + e.radius) {
-          player.hp -= e.damage * dt;
+          let dmg = e.damage * dt;
+          if (player.damageReduction) dmg *= (1 - player.damageReduction);
+          player.hp -= dmg;
           if (player.hp <= 0) {
             player.hp = 0;
-            playHit();
+            sHit();
             onGameOver();
             return;
           }
-        }
-
-        if (e.hp <= 0) {
-          killEnemy(i);
         }
       }
     }
@@ -1485,9 +1637,13 @@
                 dmg *= 1.8;
               }
               e.hp -= dmg;
-              playHit();
-              scene.remove(b.mesh);
-              bullets.splice(i, 1);
+              sHit();
+              if (player.pierce > 0 && b.remainingPierce > 0) {
+                b.remainingPierce--;
+              } else {
+                scene.remove(b.mesh);
+                bullets.splice(i, 1);
+              }
               if (e.hp <= 0) {
                 killEnemy(j);
               }
@@ -1497,8 +1653,10 @@
         } else {
           const d = Math.hypot(player.x - b.x, player.z - b.z);
           if (d < player.radius + b.radius) {
-            player.hp -= 14;
-            playHit();
+            let dmg = 16;
+            if (player.damageReduction) dmg *= (1 - player.damageReduction);
+            player.hp -= dmg;
+            sHit();
             scene.remove(b.mesh);
             bullets.splice(i, 1);
             if (player.hp <= 0) {
@@ -1528,14 +1686,14 @@
 
         if (dist < player.radius + orb.radius) {
           xp += orb.value;
-          playPickup();
+          sPickup();
           scene.remove(orb.mesh);
           xpOrbs.splice(i, 1);
 
           while (xp >= xpNeeded) {
             xp -= xpNeeded;
             level++;
-            xpNeeded = Math.floor(10 + level * 6);
+            xpNeeded = Math.floor(10 + level * 7);
             queueLevelUp();
           }
         }
@@ -1545,252 +1703,313 @@
     function autoShoot(dt) {
       shootCooldown -= dt;
       if (shootCooldown > 0) return;
-      if (enemies.length === 0) return;
+      if (enemies.length === 0) {
+        // Hedef yoksa çok sık ateş etme
+        shootCooldown = 0.25;
+        return;
+      }
 
-      let nearest = null;
-      let best = Infinity;
+      // En yakın düşmanı bul
+      let closest = enemies[0];
+      let bestDist2 = Infinity;
       for (const e of enemies) {
-        const d = Math.hypot(e.x - player.x, e.z - player.z);
-        if (d < best) {
-          best = d;
-          nearest = e;
+        const dx = e.x - player.x;
+        const dz = e.z - player.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestDist2) {
+          bestDist2 = d2;
+          closest = e;
         }
       }
-      if (!nearest) return;
 
-      spawnBullet(nearest.x - player.x, nearest.z - player.z, true);
+      const dirX = closest.x - player.x;
+      const dirZ = closest.z - player.z;
+
+      const shots = player.multiShot || 1;
+      const baseSpread = (shots > 1) ? 0.22 : 0;
+
+      for (let i = 0; i < shots; i++) {
+        let angleOffset = 0;
+        if (shots > 1) {
+          const t = (shots === 1) ? 0 : (i / (shots - 1)) - 0.5;
+          angleOffset = t * baseSpread;
+        }
+        const rotated = rotate2D(dirX, dirZ, angleOffset);
+        spawnBullet(rotated.x, rotated.z, true, null, null, player.pierce);
+      }
+
+      // fireRate = saniyedeki atış sayısı
       shootCooldown = 1 / player.fireRate;
     }
 
-    function updateHud() {
-      hudHp.textContent = `${Math.round(player.hp)} / ${player.maxHp}`;
-      hudLevel.textContent = level.toString();
-      hudKills.textContent = killCount.toString();
-      hudTime.textContent = formatTime(elapsedTime);
+    function updateDayNight(dt) {
+      if (!scene || !ambientLight || !sunLight) return;
 
-      const pct = clamp((xp / xpNeeded) * 100, 0, 100);
-      xpFill.style.width = pct + "%";
-      xpText.textContent = `XP ${Math.floor(xp)} / ${xpNeeded}`;
+      dayTime = (dayTime + dt) % DAY_LENGTH;
+      const t = dayTime / DAY_LENGTH; // 0..1
+      const angle = t * Math.PI * 2;  // tam tur
+
+      const sunY = Math.sin(angle);
+      const sunX = Math.cos(angle);
+
+      sunLight.position.set(sunX * 80, sunY * 80 + 40, 30);
+
+      const lightStrength = clamp(sunY * 0.8 + 0.2, 0.05, 1.2);
+      ambientLight.intensity = 0.35 + lightStrength * 0.7;
+      sunLight.intensity = 0.6 + lightStrength * 1.4;
+
+      const mix = clamp(lightStrength, 0, 1);
+      const bgColor = nightColor.clone().lerp(dayColor, mix);
+      scene.background = bgColor;
+      scene.fog.color.copy(bgColor);
+      scene.fog.density = 0.015 + (1 - mix) * 0.012;
+
+      if (starMaterial) {
+        starMaterial.opacity = 0.15 + (1 - mix) * 0.85;
+      }
+
+      // HUD build text: fazı göster
+      let phase;
+      if (t < 0.2) phase = "Dawn";
+      else if (t < 0.5) phase = "Day";
+      else if (t < 0.7) phase = "Dusk";
+      else phase = "Night";
+
+      hudBuild.textContent = `Mountains & Forest · ${phase}`;
     }
 
     function updateCamera(dt) {
-      const distance = 58;
-      const height = 40;
+      if (!player.mesh || !camera) return;
 
-      const targetPos = new THREE.Vector3(
-        player.x + Math.sin(cameraYaw) * distance,
-        player.y + height,
-        player.z + Math.cos(cameraYaw) * distance
-      );
-      camera.position.lerp(targetPos, cameraFollowSmooth);
-      camera.lookAt(player.x, player.y + 3, player.z);
+      const camDist = 55;
+      const camHeight = 30;
+
+      const targetX = player.x + Math.sin(cameraYaw) * camDist;
+      const targetZ = player.z + Math.cos(cameraYaw) * camDist;
+      const targetY = player.y + camHeight;
+
+      const lerpFactor = 1 - Math.pow(1 - cameraFollowSmooth, dt * 60);
+
+      camera.position.x += (targetX - camera.position.x) * lerpFactor;
+      camera.position.y += (targetY - camera.position.y) * lerpFactor;
+      camera.position.z += (targetZ - camera.position.z) * lerpFactor;
+
+      camera.lookAt(player.x, player.y + 2, player.z);
     }
 
-    function updateDayNight(dt) {
-      dayTime += dt / DAY_LENGTH;
-      const phase = dayTime % 1; // 0-1
-      const angle = phase * Math.PI * 2;
+    function updateUI() {
+      hudHp.textContent = `${Math.round(player.hp)} / ${player.maxHp}`;
+      hudLevel.textContent = level;
+      hudKills.textContent = killCount;
+      hudTime.textContent = formatTime(elapsedTime);
 
-      const sunY = Math.sin(angle);
-      const brightness = clamp(sunY * 0.5 + 0.5, 0, 1);
-
-      const dayColor = new THREE.Color(0x87ceeb);
-      const nightColor = new THREE.Color(0x020617);
-      const bg = nightColor.clone().lerp(dayColor, brightness);
-      scene.background.copy(bg);
-      scene.fog.color.copy(nightColor.clone().lerp(dayColor, 0.15 + 0.85 * brightness));
-
-      ambientLight.intensity = 0.3 + 0.7 * brightness;
-      sunLight.intensity = 0.2 + 1.4 * brightness;
-
-      sunLight.position.set(
-        Math.cos(angle) * 120,
-        sunY * 120,
-        Math.sin(angle) * 120
-      );
-
-      if (starMaterial) {
-        starMaterial.opacity = 0.2 + (1 - brightness) * 0.8;
-        starMaterial.needsUpdate = true;
-      }
+      const ratio = clamp(xp / xpNeeded, 0, 1);
+      xpFill.style.width = `${ratio * 100}%`;
+      xpText.textContent = `XP ${Math.floor(xp)} / ${xpNeeded}`;
     }
 
-    function update(dt) {
-      elapsedTime += dt;
-
-      // Çok düşman, ama kolay kesilen
-      spawnTimer -= dt;
-      if (spawnTimer <= 0) {
-        const batch = 1 + ((elapsedTime / 40) | 0); // zamanla batch artar
-        for (let i = 0; i < batch; i++) spawnEnemy();
-        const base = 1.4 - elapsedTime * 0.01;
-        spawnTimer = Math.max(0.4, base + Math.random() * 0.5);
-      }
-
-      updatePlayer(dt);
-      updateEnemies(dt);
-      updateBullets(dt);
-      updateXpOrbs(dt);
-      autoShoot(dt);
-      updateHud();
-      updateCamera(dt);
-    }
-
-    // === LOOP ===
-    function loop(now) {
-      const dt = Math.min((now - lastTime) / 1000, 0.05);
-      lastTime = now;
-
-      updateDayNight(dt);
-
-      if (gameState === "playing" && !isPausedForUpgrade) {
-        update(dt);
-      }
-
-      renderer.render(scene, camera);
-      requestAnimationFrame(loop);
-    }
-
-    // === GAME STATE ===
     function onGameOver() {
       if (gameState !== "playing") return;
       gameState = "gameover";
       isPausedForUpgrade = false;
-      pendingLevelUps = 0;
-
-      statTime.textContent = formatTime(elapsedTime);
-      statKills.textContent = killCount.toString();
-      statLevel.textContent = level.toString();
 
       upgradeScreen.classList.remove("visible");
       upgradeScreen.style.display = "none";
 
+      statTime.textContent = formatTime(elapsedTime);
+      statKills.textContent = killCount;
+      statLevel.textContent = level;
+
       gameoverScreen.style.display = "flex";
-      requestAnimationFrame(() => {
-        gameoverScreen.classList.add("visible");
-      });
+      requestAnimationFrame(() => gameoverScreen.classList.add("visible"));
     }
 
-    // === INPUT: KEYBOARD ===
-    window.addEventListener("keydown", (e) => {
-      if (e.code === "KeyW" || e.code === "ArrowUp") keyState.up = true;
-      if (e.code === "KeyS" || e.code === "ArrowDown") keyState.down = true;
-      if (e.code === "KeyA" || e.code === "ArrowLeft") keyState.left = true;
-      if (e.code === "KeyD" || e.code === "ArrowRight") keyState.right = true;
+    function startGame() {
+      resetGame();
+      gameState = "playing";
 
-      if (e.code === "Space") {
-        e.preventDefault();
-        tryJump();
-      }
-    });
-
-    window.addEventListener("keyup", (e) => {
-      if (e.code === "KeyW" || e.code === "ArrowUp") keyState.up = false;
-      if (e.code === "KeyS" || e.code === "ArrowDown") keyState.down = false;
-      if (e.code === "KeyA" || e.code === "ArrowLeft") keyState.left = false;
-      if (e.code === "KeyD" || e.code === "ArrowRight") keyState.right = false;
-    });
-
-    // === INPUT: JOYSTICK ===
-    function getPos(event, element) {
-      const rect = element.getBoundingClientRect();
-      const clientX = event.touches ? event.touches[0].clientX : event.clientX;
-      const clientY = event.touches ? event.touches[0].clientY : event.clientY;
-      return { x: clientX - rect.left, y: clientY - rect.top };
-    }
-
-    function joystickStart(event) {
-      event.preventDefault();
-      joystickActive = true;
-      const rect = joystickBase.getBoundingClientRect();
-      joystickCenter.x = rect.width / 2;
-      joystickCenter.y = rect.height / 2;
-      joystickMove(event);
-    }
-
-    function joystickMove(event) {
-      if (!joystickActive) return;
-      event.preventDefault();
-      const pos = getPos(event, joystickBase);
-      const dx = pos.x - joystickCenter.x;
-      const dy = pos.y - joystickCenter.y;
-      const maxDist = joystickBase.clientWidth / 2 - 10;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-      let nx = dx;
-      let ny = dy;
-      if (dist > maxDist) {
-        const ratio = maxDist / dist;
-        nx *= ratio;
-        ny *= ratio;
-      }
-
-      joystickKnob.style.transform =
-        `translate(${nx}px, ${ny}px) translate(-50%, -50%)`;
-
-      const normX = nx / maxDist;
-      const normY = ny / maxDist;
-
-      joystickVec.x = normX;
-      joystickVec.z = -normY; // joystick yukarı -> ileri
-    }
-
-    function joystickEnd(event) {
-      event && event.preventDefault();
-      joystickActive = false;
-      joystickVec.x = 0;
-      joystickVec.z = 0;
-      joystickKnob.style.transform = "translate(-50%, -50%)";
-    }
-
-    joystickBase.addEventListener("pointerdown", joystickStart);
-    window.addEventListener("pointermove", joystickMove);
-    window.addEventListener("pointerup", joystickEnd);
-    window.addEventListener("pointercancel", joystickEnd);
-
-    // === BUTONLAR ===
-    soundToggle.addEventListener("change", () => {
-      soundEnabled = soundToggle.checked;
-      if (soundEnabled && gameState === "playing") {
-        initAudio();
-      }
-    });
-
-    btnStart.addEventListener("click", () => {
-      soundEnabled = soundToggle.checked;
-      if (soundEnabled) initAudio();
+      gameoverScreen.classList.remove("visible");
+      gameoverScreen.style.display = "none";
 
       startScreen.classList.remove("visible");
-      setTimeout(() => { startScreen.style.display = "none"; }, 180);
+      setTimeout(() => {
+        startScreen.style.display = "none";
+      }, 180);
 
-      resetGame();
-      gameState = "playing";
-    });
+      lastTime = performance.now();
+    }
 
-    btnRestart.addEventListener("click", () => {
-      gameoverScreen.classList.remove("visible");
-      setTimeout(() => { gameoverScreen.style.display = "none"; }, 180);
-      resetGame();
-      gameState = "playing";
-    });
-
-    btnQuit.addEventListener("click", () => {
-      gameoverScreen.classList.remove("visible");
-      setTimeout(() => { gameoverScreen.style.display = "none"; }, 180);
+    function quitToStart() {
       gameState = "start";
+      isPausedForUpgrade = false;
+
+      gameoverScreen.classList.remove("visible");
+      gameoverScreen.style.display = "none";
+
+      upgradeScreen.classList.remove("visible");
+      upgradeScreen.style.display = "none";
+
       startScreen.style.display = "flex";
-      requestAnimationFrame(() => {
-        startScreen.classList.add("visible");
+      requestAnimationFrame(() => startScreen.classList.add("visible"));
+
+      resetGame();
+    }
+
+    // INPUT
+    function updateJoystickFromEvent(e) {
+      const rect = joystickBase.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+
+      const dx = e.clientX - cx;
+      const dy = e.clientY - cy;
+
+      const maxDist = rect.width * 0.4;
+      const dist = Math.min(maxDist, Math.hypot(dx, dy));
+      if (dist < 2) {
+        joystickVec.x = 0;
+        joystickVec.z = 0;
+        joystickKnob.style.left = "50%";
+        joystickKnob.style.top = "50%";
+        joystickKnob.style.transform = "translate(-50%, -50%)";
+        return;
+      }
+
+      const angle = Math.atan2(dy, dx);
+      const nx = Math.cos(angle) * (dist / maxDist);
+      const ny = Math.sin(angle) * (dist / maxDist);
+
+      joystickKnob.style.left = `${50 + nx * 40}%`;
+      joystickKnob.style.top = `${50 + ny * 40}%`;
+      joystickKnob.style.transform = "translate(-50%, -50%)";
+
+      joystickVec.x = nx;
+      joystickVec.z = -ny;
+    }
+
+    function setupInput() {
+      soundEnabled = soundToggle.checked;
+
+      soundToggle.addEventListener("change", (e) => {
+        soundEnabled = e.target.checked;
+        if (soundEnabled) initAudio();
       });
-    });
 
-    btnJump.addEventListener("click", () => {
-      tryJump();
-    });
+      btnStart.addEventListener("click", () => {
+        initAudio();
+        startGame();
+      });
 
-    // === BAŞLAT ===
+      btnRestart.addEventListener("click", () => {
+        initAudio();
+        startGame();
+      });
+
+      btnQuit.addEventListener("click", () => {
+        quitToStart();
+      });
+
+      btnJump.addEventListener("click", () => {
+        initAudio();
+        tryJump();
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if (e.repeat) return;
+        const k = e.key;
+        if (k === "w" || k === "W" || k === "ArrowUp") keyState.up = true;
+        else if (k === "s" || k === "S" || k === "ArrowDown") keyState.down = true;
+        else if (k === "a" || k === "A" || k === "ArrowLeft") keyState.left = true;
+        else if (k === "d" || k === "D" || k === "ArrowRight") keyState.right = true;
+        else if (e.code === "Space") {
+          e.preventDefault();
+          initAudio();
+          tryJump();
+        }
+      });
+
+      window.addEventListener("keyup", (e) => {
+        const k = e.key;
+        if (k === "w" || k === "W" || k === "ArrowUp") keyState.up = false;
+        else if (k === "s" || k === "S" || k === "ArrowDown") keyState.down = false;
+        else if (k === "a" || k === "A" || k === "ArrowLeft") keyState.left = false;
+        else if (k === "d" || k === "D" || k === "ArrowRight") keyState.right = false;
+      });
+
+      window.addEventListener("blur", () => {
+        keyState.up = keyState.down = keyState.left = keyState.right = false;
+        joystickActive = false;
+        joystickVec.x = joystickVec.z = 0;
+        joystickKnob.style.left = "50%";
+        joystickKnob.style.top = "50%";
+        joystickKnob.style.transform = "translate(-50%, -50%)";
+      });
+
+      joystickBase.addEventListener("pointerdown", (e) => {
+        joystickActive = true;
+        joystickBase.setPointerCapture(e.pointerId);
+        updateJoystickFromEvent(e);
+      });
+      window.addEventListener("pointermove", (e) => {
+        if (!joystickActive) return;
+        updateJoystickFromEvent(e);
+      });
+      window.addEventListener("pointerup", (e) => {
+        if (!joystickActive) return;
+        joystickActive = false;
+        joystickVec.x = joystickVec.z = 0;
+        joystickKnob.style.left = "50%";
+        joystickKnob.style.top = "50%";
+        joystickKnob.style.transform = "translate(-50%, -50%)";
+        try { joystickBase.releasePointerCapture(e.pointerId); } catch {}
+      });
+      window.addEventListener("pointercancel", (e) => {
+        if (!joystickActive) return;
+        joystickActive = false;
+        joystickVec.x = joystickVec.z = 0;
+        joystickKnob.style.left = "50%";
+        joystickKnob.style.top = "50%";
+        joystickKnob.style.transform = "translate(-50%, -50%)";
+        try { joystickBase.releasePointerCapture(e.pointerId); } catch {}
+      });
+    }
+
+    // MAIN LOOP
+    function loop() {
+      requestAnimationFrame(loop);
+      const now = performance.now();
+      let dt = (now - lastTime) / 1000;
+      lastTime = now;
+      if (dt > 0.05) dt = 0.05;
+
+      if (gameState === "playing" && !isPausedForUpgrade) {
+        elapsedTime += dt;
+
+        spawnTimer -= dt;
+        if (spawnTimer <= 0) {
+          spawnEnemy();
+          const spawnInterval = Math.max(0.25, 0.9 - elapsedTime / 80);
+          spawnTimer = spawnInterval;
+        }
+
+        updatePlayer(dt);
+        updateEnemies(dt);
+        updateBullets(dt);
+        updateXpOrbs(dt);
+        autoShoot(dt);
+      }
+
+      updateDayNight(dt);
+      updateCamera(dt);
+      updateUI();
+      renderer.render(scene, camera);
+    }
+
+    // Boot
     initThree();
+    setupInput();
     resetGame();
+    updateUI();
     requestAnimationFrame(loop);
   </script>
 </body>
