@@ -1004,20 +1004,17 @@
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
         const z = pos.getZ(i);
-        
+    
+        // yükseklik + mikro dalgalanma
         let y = terrainHeight(x, z);
-        
-        // küçük dalgalanma – sadece birkaç santim
         const microScale = 0.08;
         const micro = Perlin.noise(x * microScale + 200, z * microScale + 200) * 0.8;
         y += micro;
-        
         pos.setY(i, y);
-
     
-        // --- ÇÖL / KUM PALETİ + ÇOK DAHA PARLAK ---
+        // --- ÇÖL / KUM PALETİ ---
         let r, g, b;
-
+    
         // temel kum tonu
         if (y < -4) {
           r = 0.80; g = 0.70; b = 0.55;
@@ -1028,29 +1025,23 @@
         } else {
           r = 0.75; g = 0.72; b = 0.70;
         }
-        
+    
         // ÜZERİNE hafif “kir / çimen” dokusu
-        const cNoise = Perlin.noise(x * 0.03 + 500, z * 0.03 + 500); // -1..1 civarı
-        // 0..1'e map
-        const t = (cNoise + 1) * 0.5;
-        
-        // düz kum -> hafif yeşilimsi kahve karışımı
-        // (burada tam çimen yapmak istemezsen daha da sarı bırakabilirsin)
+        const cNoise = Perlin.noise(x * 0.03 + 500, z * 0.03 + 500); // ~-1..1
+        const t = (cNoise + 1) * 0.5; // 0..1
+    
         const grassR = r * 0.9;
         const grassG = g * 1.1;
         const grassB = b * 0.9;
-        
-        // t'yi çok agresif yapma, küçük bir karışım olsun
-        const mix = 0.25 * t;
-        
+    
+        const mix = 0.25 * t; // çok agresif olmasın
+    
         r = r * (1 - mix) + grassR * mix;
         g = g * (1 - mix) + grassG * mix;
         b = b * (1 - mix) + grassB * mix;
-        
+    
         colors[i * 3 + 0] = r;
         colors[i * 3 + 1] = g;
-        colors[i * 3 + 2] = b;
-
         colors[i * 3 + 2] = b;
       }
     
@@ -1065,37 +1056,34 @@
         emissive: new THREE.Color(0x111111),  // hafif parıltı
         emissiveIntensity: 0.35
       });
-
     
       const ground = new THREE.Mesh(groundGeo, groundMaterial);
-        ground.rotation.x = -Math.PI / 2;
-        ground.receiveShadow = true;
-        scene.add(ground);
-      
-        // Grid’i daha hafif yapalım ki kumdan daha koyu kalmasın
-        const grid = new THREE.GridHelper(WORLD_SIZE, 40, 0x334155, 0x1e293b);
-        grid.position.y = 0.05;
-        scene.add(grid);
-      }
-
-
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+    
+      // Grid’i istersen tamamen silebilirsin; şimdilik hafif bırakalım
+      const grid = new THREE.GridHelper(WORLD_SIZE, 40, 0x334155, 0x1e293b);
+      grid.position.y = 0.05;
+      scene.add(grid);
+    
       // Su yüzeyi (göller/nehir hissi)
       const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE * 1.4, WORLD_SIZE * 1.4);
       waterMaterial = new THREE.MeshStandardMaterial({
         color: 0x1d4ed8,
         transparent: true,
-        opacity: 0.28,     // daha hafif
+        opacity: 0.28,   // daha hafif
         metalness: 0.7,
         roughness: 0.25
       });
-      
-
+    
       const water = new THREE.Mesh(waterGeo, waterMaterial);
-        water.rotation.x = -Math.PI / 2;
-        water.position.y = -11.0;  // zeminden biraz daha uzak
-        water.receiveShadow = true;
-        scene.add(water);
+      water.rotation.x = -Math.PI / 2;
+      water.position.y = -11.0; // zeminden biraz daha uzak
+      water.receiveShadow = true;
+      scene.add(water);
     }
+
 
     function createTree(x, z) {
       const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 4, 6);
