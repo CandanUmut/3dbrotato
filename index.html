@@ -568,12 +568,23 @@
     })();
 
     function terrainHeight(x, z) {
-      const s1 = 0.012;
-      const s2 = 0.038;
-      const h1 = Perlin.noise(x * s1, z * s1) * 20;
-      const h2 = Perlin.noise(x * s2 + 100, z * s2 + 100) * 7;
-      return h1 + h2 - 11;
+      // Geniş tepeler + detay
+      const s1 = 0.008;  // büyük şekiller
+      const s2 = 0.032;  // küçük detaylar
+    
+      const h1 = Perlin.noise(x * s1, z * s1) * 22;
+      const h2 = Perlin.noise(x * s2 + 100, z * s2 + 100) * 8;
+    
+      // Ortalama yüksekliği yukarı al (çoğu yer su üstünde olsun)
+      let y = (h1 + h2) * 0.7 + 3; // ortalama ~3 civarında
+    
+      // Minecraft hissi: yükseklikleri kademeli yap
+      const step = 1.2;              // blok yüksekliği
+      y = Math.round(y / step) * step;
+    
+      return y;
     }
+
 
     // Player
     const player = {
@@ -937,8 +948,10 @@
         0.1,
         1000
       );
-      camera.position.set(0, 40, 55);
-      camera.lookAt(0, 0, 0);
+      // Biraz daha yere yakın, minecraft 3rd person vibe
+      camera.position.set(0, 26, 34);
+      camera.lookAt(0, 5, 0);
+
 
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -997,69 +1010,71 @@
     }
 
     function createTerrain() {
-      // Daha sık mesh: yükseklik ve renk farkı daha net
-      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 150, 150);
+      // Daha detaylı mesh
+      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 160, 160);
       const pos = groundGeo.attributes.position;
       const colors = new Float32Array(pos.count * 3);
     
-      const tileSize = 6;       // "kare" boyutu – yön hissi için
-      const waterLevel = -6;    // su seviyesi (daha yukarıda, yere yakın)
+      const tileSize = 5;      // kare boyutu (minecraft tarzı)
+      const waterLevel = 0.0;  // su seviyesi – çoğu yer bunun üstünde
     
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
         const z = pos.getZ(i);
     
-        // Ana yükseklik
-        let y = terrainHeight(x, z);
-    
-        // Küçük dalgalanma – zemin tamamen cam gibi olmasın
-        const microScale = 0.08;
-        const micro = Perlin.noise(x * microScale + 200, z * microScale + 200) * 0.5;
-        y += micro;
-    
+        // Yükseklik: yeni blocky terrain
+        const y = terrainHeight(x, z);
         pos.setY(i, y);
     
-        // ---- BIOME / RENK PALİTİ ----
-        // Daha "minecraft" hissi: kum, çim, toprak, taş net ayrılsın
+        // --- BIOME / RENK PALİTİ ---
         let r, g, b;
     
-        if (y < waterLevel - 3) {
-          // suyun altında kalan en dip: koyu çamurlu toprak
-          // koyu zeytin tonları
-          r = 0.20; g = 0.22; b = 0.16;
-        } else if (y < waterLevel + 0.3) {
-          // su kenarı / sahil: açık kum rengi
-          r = 0.93; g = 0.83; b = 0.58; // sıcak sarımsı kum
-        } else if (y < 4) {
-          // alt seviye çim – düz alanlar
-          r = 0.18; g = 0.60; b = 0.24; // canlı yeşil
-        } else if (y < 10) {
-          // yamaç çimleri – biraz daha açık
+        if (y < waterLevel - 2) {
+          // derin dip – koyu çamurlu toprak
+          r = 0.24; g = 0.23; b = 0.18;
+        } else if (y < waterLevel + 0.4) {
+          // sahil – kum
+          r = 0.93; g = 0.83; b = 0.58;
+        } else if (y < 5) {
+          // alçak yeşillik
+          r = 0.18; g = 0.60; b = 0.24;
+        } else if (y < 11) {
+          // yamaç çimleri
           r = 0.25; g = 0.70; b = 0.32;
         } else {
-          // tepeler: taş / kayalık, gri tonlar
+          // tepeler – taş / kaya
           r = 0.70; g = 0.70; b = 0.72;
         }
     
-        // Hafif renk gürültüsü – leke / kir hissi
+        // Hafif kir/pattern – düz olmasın
         const cNoise = Perlin.noise(x * 0.05 + 500, z * 0.05 + 500); // -1..1
-        const n = 1 + cNoise * 0.15; // ± %15
-        r *= n;
-        g *= n;
-        b *= n;
+        const n = 1 + cNoise * 0.12;
+        r *= n; g *= n; b *= n;
     
-        // Kare / karo efekti: grid çizgisi yerine ton farkı
-        const tx = Math.floor((x + WORLD_SIZE / 2) / tileSize);
-        const tz = Math.floor((z + WORLD_SIZE / 2) / tileSize);
-        const checker = (tx + tz) & 1;
-        const checkerMul = checker ? 1.06 : 0.94; // biri biraz koyu, biri biraz açık
+        // --- KARE GRID: YERYÜZÜNÜ TAKİP EDEN ÇİZGİLER ---
+        const tx = (x + WORLD_SIZE / 2) / tileSize;
+        const tz = (z + WORLD_SIZE / 2) / tileSize;
     
-        r *= checkerMul;
-        g *= checkerMul;
-        b *= checkerMul;
+        // Kare merkezine uzaklık (0 = tam grid çizgisi)
+        const fx = Math.abs(tx - Math.round(tx));
+        const fz = Math.abs(tz - Math.round(tz));
+        const nearLine = fx < 0.04 || fz < 0.04; // çizgi kalınlığı
     
-        // Genel olarak aydınlat: gece bile zemini net görelim
-        const brighten = 1.25;
+        if (nearLine) {
+          // grid çizgisini koyulaştır
+          r *= 0.65;
+          g *= 0.65;
+          b *= 0.65;
+        } else {
+          // kare içini checker pattern ile hafif oyna
+          const checker = ((Math.floor(tx) + Math.floor(tz)) & 1) ? 1.04 : 0.96;
+          r *= checker;
+          g *= checker;
+          b *= checker;
+        }
+    
+        // Genel olarak aydınlat – zemini net gör
+        const brighten = 1.35;
         r = Math.min(r * brighten, 1.0);
         g = Math.min(g * brighten, 1.0);
         b = Math.min(b * brighten, 1.0);
@@ -1076,8 +1091,8 @@
       groundMaterial = new THREE.MeshStandardMaterial({
         vertexColors: true,
         metalness: 0.0,
-        roughness: 0.85,
-        flatShading: true, // low-poly / minecraft hissi için daha net yüzeyler
+        roughness: 0.9,
+        flatShading: true, // low-poly yüzeyler – minecraft hissi
       });
     
       const ground = new THREE.Mesh(groundGeo, groundMaterial);
@@ -1086,19 +1101,18 @@
       scene.add(ground);
     
       // === SU YÜZEYİ ===
-      // Su rengi de daha belirgin, ama zemin maviye boğulmasın
       const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE * 1.4, WORLD_SIZE * 1.4);
       waterMaterial = new THREE.MeshStandardMaterial({
-        color: 0x2fa8ff,      // temiz mavi / turkuaz su
+        color: 0x1e90ff,   // temiz, daha koyu mavi
         transparent: true,
-        opacity: 0.6,
-        metalness: 0.1,
-        roughness: 0.25,
+        opacity: 0.45,     // daha az baskın
+        metalness: 0.0,
+        roughness: 0.15,
       });
     
       const water = new THREE.Mesh(waterGeo, waterMaterial);
       water.rotation.x = -Math.PI / 2;
-      water.position.y = waterLevel;
+      water.position.y = waterLevel;  // yeni su seviyesi
       water.receiveShadow = false;
       scene.add(water);
     }
