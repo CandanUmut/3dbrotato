@@ -997,47 +997,61 @@
     }
 
     function createTerrain() {
-      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 100, 100);
+      // Daha sık mesh: yükseklik ve renk farkı daha net
+      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 150, 150);
       const pos = groundGeo.attributes.position;
       const colors = new Float32Array(pos.count * 3);
+    
+      const tileSize = 6; // "kare" boyutu – yön hissi için
     
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
         const z = pos.getZ(i);
     
-        // yükseklik + mikro dalgalanma
+        // Ana yükseklik
         let y = terrainHeight(x, z);
+    
+        // Küçük dalgalanma – zemin tamamen cam gibi olmasın
         const microScale = 0.08;
-        const micro = Perlin.noise(x * microScale + 200, z * microScale + 200) * 0.8;
+        const micro = Perlin.noise(x * microScale + 200, z * microScale + 200) * 0.6;
         y += micro;
+    
         pos.setY(i, y);
     
-        // --- ÇÖL / KUM PALETİ ---
+        // ---- BIOME / RENK PALİTİ ----
+        // toprağa doğru kahve/yeşil, yüksekte taş tonları
         let r, g, b;
     
-        if (y < -4) {
-          r = 0.80; g = 0.70; b = 0.55;
-        } else if (y < 4) {
-          r = 0.93; g = 0.84; b = 0.66;
-        } else if (y < 10) {
-          r = 0.98; g = 0.91; b = 0.75;
+        if (y < -10) {
+          // en alçak yerler: koyu, hafif nemli toprak
+          r = 0.16; g = 0.20; b = 0.24;
+        } else if (y < -2) {
+          // alt seviye: toprak + kum karışımı
+          r = 0.55; g = 0.47; b = 0.32;
+        } else if (y < 6) {
+          // orta seviye: çim / yeşil alan
+          r = 0.25; g = 0.48; b = 0.29;
         } else {
-          r = 0.75; g = 0.72; b = 0.70;
+          // tepeler: taş / kayalık
+          r = 0.55; g = 0.58; b = 0.60;
         }
     
-        // hafif kir / çimen dokusu
-        const cNoise = Perlin.noise(x * 0.03 + 500, z * 0.03 + 500);
-        const t = (cNoise + 1) * 0.5; // 0..1
+        // Hafif renk gürültüsü – leke / kir hissi
+        const cNoise = Perlin.noise(x * 0.05 + 500, z * 0.05 + 500); // -1..1
+        const n = 1 + cNoise * 0.08; // ± %8
+        r *= n;
+        g *= n;
+        b *= n;
     
-        const grassR = r * 0.9;
-        const grassG = g * 1.1;
-        const grassB = b * 0.9;
+        // Kare / karo efekti: grid çizgisi yerine ton farkı
+        const tx = Math.floor((x + WORLD_SIZE / 2) / tileSize);
+        const tz = Math.floor((z + WORLD_SIZE / 2) / tileSize);
+        const checker = (tx + tz) & 1;
+        const checkerMul = checker ? 0.96 : 1.04; // biri biraz koyu, biri biraz açık
     
-        const mix = 0.25 * t;
-    
-        r = r * (1 - mix) + grassR * mix;
-        g = g * (1 - mix) + grassG * mix;
-        b = b * (1 - mix) + grassB * mix;
+        r *= checkerMul;
+        g *= checkerMul;
+        b *= checkerMul;
     
         colors[i * 3 + 0] = r;
         colors[i * 3 + 1] = g;
@@ -1051,46 +1065,34 @@
       groundMaterial = new THREE.MeshStandardMaterial({
         vertexColors: true,
         metalness: 0.05,
-        roughness: 0.55,
-        emissive: new THREE.Color(0x111111),
-        emissiveIntensity: 0.35
+        roughness: 0.9, // daha mat, plastik hissi azalsın
       });
     
-      // Ana zemin
       const ground = new THREE.Mesh(groundGeo, groundMaterial);
       ground.rotation.x = -Math.PI / 2;
       ground.receiveShadow = true;
       scene.add(ground);
     
-      // --- ARAZİYİ TAKİP EDEN GRID ---
-      // PlaneGeometry’nin kendisinden wireframe üret
-      const gridWireGeo = new THREE.WireframeGeometry(groundGeo);
-      const gridMat = new THREE.LineBasicMaterial({
-        color: 0x4b5563,        // grid rengi
-        transparent: true,
-        opacity: 0.35
-      });
-      const terrainGrid = new THREE.LineSegments(gridWireGeo, gridMat);
-      terrainGrid.rotation.x = -Math.PI / 2;      // zeminin dönüşü ile aynı
-      terrainGrid.position.copy(ground.position); // hizalı kalsın
-      scene.add(terrainGrid);
-    
-      // Su yüzeyi (göller/nehir hissi)
+      // === SU YÜZEYİ ===
+      // Burada hâlâ büyük bir su düzlemi var ama daha koyu mavi,
+      // yerden biraz daha aşağıda duruyor.
+      const waterLevel = -14; // terrainHeight min'inden biraz yukarı / biraz aşağı oynayabilirsin
       const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE * 1.4, WORLD_SIZE * 1.4);
       waterMaterial = new THREE.MeshStandardMaterial({
-        color: 0x1d4ed8,
+        color: 0x1e3a8a,
         transparent: true,
-        opacity: 0.28,
-        metalness: 0.7,
-        roughness: 0.25
+        opacity: 0.35,
+        metalness: 0.6,
+        roughness: 0.15,
       });
     
       const water = new THREE.Mesh(waterGeo, waterMaterial);
       water.rotation.x = -Math.PI / 2;
-      water.position.y = -11.0;
-      water.receiveShadow = true;
+      water.position.y = waterLevel;
+      water.receiveShadow = false;
       scene.add(water);
     }
+
 
 
     function createTree(x, z) {
