@@ -1089,7 +1089,7 @@
       // Su rengi de daha belirgin, ama zemin maviye boğulmasın
       const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE * 1.4, WORLD_SIZE * 1.4);
       waterMaterial = new THREE.MeshStandardMaterial({
-        color: #BF9000,      // temiz mavi / turkuaz su
+        color: 0x8B4513,      // temiz mavi / turkuaz su
         transparent: true,
         opacity: 0.6,
         metalness: 0.1,
