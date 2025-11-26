@@ -141,8 +141,8 @@
     }
 
     .screen-card {
-      min-width: min(400px, 90%);
-      max-width: 480px;
+      min-width: min(420px, 90%);
+      max-width: 520px;
       background: radial-gradient(circle at top left, var(--accent-soft), var(--panel));
       border-radius: 18px;
       border: 1px solid rgba(148, 163, 184, 0.9);
@@ -153,19 +153,25 @@
       transition: opacity 0.2s ease-out, transform 0.2s ease-out;
     }
 
+    /* Upgrade screen larger/wider */
+    #upgrade-screen .screen-card {
+      min-width: min(540px, 95%);
+      max-width: 680px;
+    }
+
     .screen.visible .screen-card {
       opacity: 1;
       transform: translateY(0) scale(1);
     }
 
     .screen-title {
-      font-size: 20px;
+      font-size: 22px;
       font-weight: 700;
-      margin: 0 0 4px;
+      margin: 0 0 6px;
     }
 
     .screen-sub {
-      font-size: 13px;
+      font-size: 14px;
       color: var(--text-soft);
       margin: 0 0 10px;
     }
@@ -243,15 +249,17 @@
 
     .upgrade-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-      gap: 8px;
-      margin-top: 8px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+      max-height: 360px;
+      overflow-y: auto;
     }
 
     .upgrade-card {
       border-radius: 12px;
       border: 1px solid rgba(148, 163, 184, 0.9);
-      background: rgba(15, 23, 42, 0.9);
+      background: rgba(15, 23, 42, 0.95);
       padding: 8px;
       cursor: pointer;
       transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, border-color 0.15s ease-out, background 0.15s ease-out;
@@ -260,15 +268,15 @@
 
     .upgrade-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 10px 24px rgba(56, 189, 248, 0.6);
+      box-shadow: 0 10px 24px rgba(56, 189, 248, 0.7);
       border-color: #38bdf8;
-      background: radial-gradient(circle at top left, rgba(56,189,248,0.12), rgba(15,23,42,0.95));
+      background: radial-gradient(circle at top left, rgba(56,189,248,0.16), rgba(15,23,42,0.98));
     }
 
     .upgrade-name {
       font-weight: 600;
-      margin-bottom: 2px;
-      font-size: 13px;
+      margin-bottom: 3px;
+      font-size: 14px;
     }
 
     .upgrade-tag {
@@ -292,6 +300,7 @@
       font-size: 11px;
       color: var(--text-soft);
       pointer-events: none;
+      text-shadow: 0 0 4px #000;
     }
 
     /* Joystick */
@@ -362,12 +371,13 @@
     @media (max-width: 768px) {
       #xp-wrapper { width: 92%; }
       .hud-pill { padding: 3px 8px; }
+      .screen-card { max-width: 95%; }
     }
 
     @media (prefers-reduced-motion: reduce) {
       * {
         transition: none !important;
-        animation: none !important;
+        animation: none !Important;
       }
     }
   </style>
@@ -423,8 +433,8 @@
       <div class="screen-card">
         <h1 class="screen-title">Nova Arena 3D</h1>
         <p class="screen-sub">
-          Dağlar, ağaçlar ve kayalarla dolu, Perlin noise ile üretilmiş bir arazide hayatta kal.
-          Etrafına bak, zıpla, engelleri aş, sürüler hâlinde gelen düşmanları parçala ve build'ini büyüt.
+          Dağlar, ağaçlar, kayalar, çimenler ve küçük göllerle dolu, Perlin noise ile üretilmiş
+          bir arazide hayatta kal. Etrafına bak, zemini hisset, zıpla, engelleri aş ve build'ini büyüt.
         </p>
         <div class="screen-toggle">
           <label>
@@ -443,7 +453,7 @@
       <div class="screen-card">
         <h2 class="screen-title">Oyun Bitti</h2>
         <p class="screen-sub">
-          Güzel bir run oldu. İstersen farklı upgrade kombinasyonları ve rotalar deneyerek tekrar oyna.
+          Güzel bir run oldu. Farklı upgrade kombinasyonları ve rotalar deneyerek tekrar oyna.
         </p>
         <div class="screen-row">
           <span>Toplam süre</span><span id="stat-time">00:00</span>
@@ -488,10 +498,10 @@
 
   <script>
     // === WORLD CONSTANTS ===
-    const WORLD_SIZE = 260;
-    const DAY_LENGTH = 40; // saniye (daha belirgin gece-gündüz)
-    const OBSTACLE_COUNT_TREES = 140;
-    const OBSTACLE_COUNT_ROCKS = 70;
+    const WORLD_SIZE = 420;          // Daha geniş harita
+    const DAY_LENGTH = 40;           // saniye (gece-gündüz turu)
+    const OBSTACLE_COUNT_TREES = 180;
+    const OBSTACLE_COUNT_ROCKS = 90;
 
     let scene, camera, renderer;
     let lastTime = performance.now();
@@ -499,19 +509,22 @@
     let isPausedForUpgrade = false;
 
     // Kamera & gün döngüsü
-    let cameraFollowSmooth = 0.14;
+    let cameraFollowSmooth = 0.16;
     let cameraYaw = Math.PI;
+    let cameraPitch = 0.95;        // 0 yatay, ~1 yukarıdan bakış
     let isDraggingCam = false;
     let lastCamX = 0;
+    let lastCamY = 0;
     let cameraShake = 0;
     let dayTime = 0;
     let windTime = 0;
 
     // Işık ve gökyüzü
-    let ambientLight, sunLight, starMaterial;
+    let ambientLight, sunLight, backLight, starMaterial;
     let dayColor, nightColor;
     let sunMesh, moonMesh;
     let groundMaterial = null;
+    let waterMaterial = null;
 
     // Perlin
     const Perlin = (() => {
@@ -555,11 +568,11 @@
     })();
 
     function terrainHeight(x, z) {
-      const s1 = 0.015;
-      const s2 = 0.045;
-      const h1 = Perlin.noise(x * s1, z * s1) * 18;
-      const h2 = Perlin.noise(x * s2 + 100, z * s2 + 100) * 6;
-      return h1 + h2 - 10;
+      const s1 = 0.012;
+      const s2 = 0.038;
+      const h1 = Perlin.noise(x * s1, z * s1) * 20;
+      const h2 = Perlin.noise(x * s2 + 100, z * s2 + 100) * 7;
+      return h1 + h2 - 11;
     }
 
     // Player
@@ -594,6 +607,7 @@
     const xpOrbs = [];
     const obstacles = []; // dağlar/ağaç/taş colliderları
     const effects = [];   // görsel efektler (nova halkası vb.)
+    const hearts = [];    // can kalpleri
 
     let elapsedTime = 0;
     let killCount = 0;
@@ -622,7 +636,14 @@
       if (audioCtx.resume) audioCtx.resume();
     }
 
-    function playSound({ freqStart = 440, freqEnd = 440, duration = 0.12, volume = 0.4, type = "square" }) {
+    // Daha yumuşak, daha az rahatsız edici sesler
+    function playSound({
+      freqStart = 440,
+      freqEnd = 440,
+      duration = 0.18,
+      volume = 0.3,
+      type = "sine"
+    }) {
       if (!audioCtx || !soundEnabled) return;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
@@ -633,29 +654,32 @@
       osc.frequency.linearRampToValueAtTime(freqEnd, now + duration * 0.9);
 
       gain.gain.setValueAtTime(volume, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+      gain.gain.linearRampToValueAtTime(0.0001, now + duration);
 
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       osc.start(now);
-      osc.stop(now + duration);
+      osc.stop(now + duration + 0.02);
     }
 
     function sShoot() {
-      playSound({ freqStart: 880, freqEnd: 620, duration: 0.08, volume: 0.45, type: "sawtooth" });
+      playSound({ freqStart: 520, freqEnd: 360, duration: 0.11, volume: 0.22, type: "triangle" });
     }
     function sHit() {
-      playSound({ freqStart: 260, freqEnd: 120, duration: 0.12, volume: 0.55, type: "square" });
+      playSound({ freqStart: 260, freqEnd: 140, duration: 0.16, volume: 0.3, type: "sine" });
     }
     function sPickup() {
-      playSound({ freqStart: 520, freqEnd: 940, duration: 0.16, volume: 0.45, type: "triangle" });
+      playSound({ freqStart: 700, freqEnd: 980, duration: 0.18, volume: 0.24, type: "triangle" });
     }
     function sLevel() {
-      playSound({ freqStart: 700, freqEnd: 1100, duration: 0.12, volume: 0.5, type: "triangle" });
-      setTimeout(() => playSound({ freqStart: 1100, freqEnd: 1400, duration: 0.12, volume: 0.45, type: "triangle" }), 110);
+      playSound({ freqStart: 600, freqEnd: 900, duration: 0.2, volume: 0.3, type: "sine" });
+      setTimeout(() => playSound({ freqStart: 900, freqEnd: 1200, duration: 0.2, volume: 0.28, type: "triangle" }), 120);
     }
     function sJump() {
-      playSound({ freqStart: 480, freqEnd: 820, duration: 0.18, volume: 0.4, type: "triangle" });
+      playSound({ freqStart: 380, freqEnd: 640, duration: 0.18, volume: 0.26, type: "triangle" });
+    }
+    function sHeal() {
+      playSound({ freqStart: 420, freqEnd: 760, duration: 0.22, volume: 0.28, type: "sine" });
     }
 
     // UI
@@ -778,11 +802,25 @@
         apply() { player.speed *= 1.30; }
       },
       {
+        id: "speed_2",
+        name: "Hyper Boots",
+        tag: "Utility",
+        desc: "Hareket hızın bir kez daha %25 artar.",
+        apply() { player.speed *= 1.25; }
+      },
+      {
         id: "pickup_1",
         name: "Magnet Core",
         tag: "Utility",
         desc: "XP toplama yarıçapın %45 artar.",
         apply() { player.pickupRadius *= 1.45; }
+      },
+      {
+        id: "pickup_2",
+        name: "Singularity Core",
+        tag: "Utility",
+        desc: "XP toplama yarıçapın %35 daha artar.",
+        apply() { player.pickupRadius *= 1.35; }
       },
       {
         id: "dash_1",
@@ -796,7 +834,7 @@
         name: "Drift Thrusters",
         tag: "Utility",
         desc: "Kamera takibi ve kontrol daha yumuşak.",
-        apply() { cameraFollowSmooth = 0.18; }
+        apply() { cameraFollowSmooth = 0.2; }
       }
     ];
 
@@ -886,35 +924,45 @@
     function initThree() {
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x020617);
-      scene.fog = new THREE.FogExp2(0x020617, 0.018);
+      scene.fog = new THREE.FogExp2(0x020617, 0.012);
 
-      dayColor = new THREE.Color(0x1e293b);
+      dayColor = new THREE.Color(0x1f2937);
       nightColor = new THREE.Color(0x020617);
 
       camera = new THREE.PerspectiveCamera(
         60,
         window.innerWidth / window.innerHeight,
         0.1,
-        800
+        1000
       );
-      camera.position.set(0, 55, 70);
+      camera.position.set(0, 40, 55);
       camera.lookAt(0, 0, 0);
 
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setPixelRatio(window.devicePixelRatio || 1);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       document.getElementById("game-root").appendChild(renderer.domElement);
 
-      ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+      ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
       scene.add(ambientLight);
 
       sunLight = new THREE.DirectionalLight(0xffffff, 1.6);
-      sunLight.position.set(60, 80, 20);
+      sunLight.position.set(60, 90, 40);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.set(1024, 1024);
+      sunLight.shadow.camera.near = 10;
+      sunLight.shadow.camera.far = 420;
+      sunLight.shadow.camera.left = -220;
+      sunLight.shadow.camera.right = 220;
+      sunLight.shadow.camera.top = 220;
+      sunLight.shadow.camera.bottom = -220;
       scene.add(sunLight);
 
-      const backLight = new THREE.DirectionalLight(0x38bdf8, 0.6);
-      backLight.position.set(-60, 40, -40);
+      backLight = new THREE.DirectionalLight(0x38bdf8, 0.7);
+      backLight.position.set(-80, 40, -60);
       scene.add(backLight);
 
       createTerrain();
@@ -929,12 +977,16 @@
         if (e.target !== renderer.domElement) return;
         isDraggingCam = true;
         lastCamX = e.clientX;
+        lastCamY = e.clientY;
       });
       window.addEventListener("pointermove", (e) => {
         if (!isDraggingCam) return;
         const dx = e.clientX - lastCamX;
+        const dy = e.clientY - lastCamY;
         lastCamX = e.clientX;
+        lastCamY = e.clientY;
         cameraYaw -= dx * 0.004;
+        cameraPitch = clamp(cameraPitch + dy * 0.004, 0.7, 1.3);
       });
       window.addEventListener("pointerup", () => { isDraggingCam = false; });
       window.addEventListener("pointercancel", () => { isDraggingCam = false; });
@@ -943,7 +995,7 @@
     }
 
     function createTerrain() {
-      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 100, 100);
+      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 120, 120);
       const pos = groundGeo.attributes.position;
       const colors = new Float32Array(pos.count * 3);
 
@@ -953,16 +1005,19 @@
         const y = terrainHeight(x, z);
         pos.setY(i, y);
 
-        // Yükseğe göre renk: vadi koyu yeşil, orta lime, tepe taş rengi
+        // Yükseğe göre renk: vadi su/çamur, ova çimen, yüksek dağ taşı
         let r, g, b;
-        if (y < -4) {
-          r = 0.03; g = 0.3; b = 0.18;
+        if (y < -6) {
+          // Suyun altı koyu mavi-yeşil ton
+          r = 0.04; g = 0.24; b = 0.32;
+        } else if (y < -2) {
+          r = 0.06; g = 0.32; b = 0.20;
         } else if (y < 4) {
-          r = 0.08; g = 0.55; b = 0.26;
+          r = 0.13; g = 0.58; b = 0.28;
         } else if (y < 10) {
-          r = 0.3; g = 0.56; b = 0.32;
+          r = 0.32; g = 0.62; b = 0.36;
         } else {
-          r = 0.6; g = 0.6; b = 0.65;
+          r = 0.68; g = 0.68; b = 0.71;
         }
         colors[i * 3 + 0] = r;
         colors[i * 3 + 1] = g;
@@ -975,17 +1030,35 @@
 
       groundMaterial = new THREE.MeshStandardMaterial({
         vertexColors: true,
-        metalness: 0.25,
-        roughness: 0.9,
+        metalness: 0.22,
+        roughness: 0.88,
       });
       const ground = new THREE.Mesh(groundGeo, groundMaterial);
       ground.rotation.x = -Math.PI / 2;
       ground.receiveShadow = true;
       scene.add(ground);
 
-      const grid = new THREE.GridHelper(WORLD_SIZE, 40, 0x38bdf8, 0x111827);
-      grid.position.y = 0.15;
+      // Hafif grid hissi
+      const grid = new THREE.GridHelper(WORLD_SIZE, 50, 0x1f2937, 0x0f172a);
+      grid.position.y = 0.12;
+      grid.material.opacity = 0.12;
+      grid.material.transparent = true;
       scene.add(grid);
+
+      // Su yüzeyi (göller/nehir hissi)
+      const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE * 1.4, WORLD_SIZE * 1.4);
+      waterMaterial = new THREE.MeshStandardMaterial({
+        color: 0x1d4ed8,
+        transparent: true,
+        opacity: 0.55,
+        metalness: 0.9,
+        roughness: 0.18
+      });
+      const water = new THREE.Mesh(waterGeo, waterMaterial);
+      water.rotation.x = -Math.PI / 2;
+      water.position.y = -8.5;
+      water.receiveShadow = true;
+      scene.add(water);
     }
 
     function createTree(x, z) {
@@ -995,6 +1068,7 @@
         roughness: 0.9,
       });
       const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.castShadow = true;
 
       const crownGeo = new THREE.SphereGeometry(1.6, 10, 10);
       const crownMat = new THREE.MeshStandardMaterial({
@@ -1004,6 +1078,7 @@
       });
       const crown = new THREE.Mesh(crownGeo, crownMat);
       crown.position.y = 2.8;
+      crown.castShadow = true;
 
       const group = new THREE.Group();
       group.add(trunk);
@@ -1014,6 +1089,7 @@
 
       const scale = 0.8 + Math.random() * 0.9;
       group.scale.set(scale, scale, scale);
+      group.castShadow = true;
 
       scene.add(group);
 
@@ -1031,13 +1107,15 @@
       const y = terrainHeight(x, z);
       rock.position.set(x, y + 1, z);
       rock.rotation.y = Math.random() * Math.PI * 2;
+      rock.castShadow = true;
+      rock.receiveShadow = true;
       scene.add(rock);
 
       obstacles.push({ x, z, radius: 1.5, mesh: rock, type: "rock" });
     }
 
     function createObstacles() {
-      const margin = 16;
+      const margin = 20;
       let placed = 0;
 
       // Trees
@@ -1045,7 +1123,7 @@
         const x = (Math.random() - 0.5) * (WORLD_SIZE - margin * 2);
         const z = (Math.random() - 0.5) * (WORLD_SIZE - margin * 2);
 
-        if (Math.hypot(x, z) < 10) continue; // spawn point temiz kalsın
+        if (Math.hypot(x, z) < 12) continue; // spawn point temiz kalsın
         createTree(x, z);
         placed++;
       }
@@ -1055,7 +1133,7 @@
       while (rocksPlaced < OBSTACLE_COUNT_ROCKS) {
         const x = (Math.random() - 0.5) * (WORLD_SIZE - margin * 2);
         const z = (Math.random() - 0.5) * (WORLD_SIZE - margin * 2);
-        if (Math.hypot(x, z) < 12) continue;
+        if (Math.hypot(x, z) < 16) continue;
         createRock(x, z);
         rocksPlaced++;
       }
@@ -1065,15 +1143,15 @@
       const starCount = 900;
       const positions = new Float32Array(starCount * 3);
       for (let i = 0; i < starCount; i++) {
-        positions[i * 3 + 0] = (Math.random() - 0.5) * 480;
-        positions[i * 3 + 1] = 60 + Math.random() * 180;
-        positions[i * 3 + 2] = (Math.random() - 0.5) * 480;
+        positions[i * 3 + 0] = (Math.random() - 0.5) * 550;
+        positions[i * 3 + 1] = 70 + Math.random() * 220;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 550;
       }
       const starGeo = new THREE.BufferGeometry();
       starGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
       starMaterial = new THREE.PointsMaterial({
         color: 0xffffff,
-        size: 1.2,
+        size: 1.1,
         sizeAttenuation: true,
         transparent: true,
         opacity: 0.9
@@ -1083,7 +1161,7 @@
     }
 
     function createSkyBodies() {
-      const sunGeo = new THREE.SphereGeometry(10, 24, 24);
+      const sunGeo = new THREE.SphereGeometry(14, 30, 30);
       const sunMat = new THREE.MeshBasicMaterial({
         color: 0xfacc15,
         transparent: true,
@@ -1092,7 +1170,7 @@
       sunMesh = new THREE.Mesh(sunGeo, sunMat);
       scene.add(sunMesh);
 
-      const moonGeo = new THREE.SphereGeometry(7, 24, 24);
+      const moonGeo = new THREE.SphereGeometry(9, 26, 26);
       const moonMat = new THREE.MeshBasicMaterial({
         color: 0xe5e7eb,
         transparent: true,
@@ -1105,7 +1183,22 @@
     function createPlayer() {
       const group = new THREE.Group();
 
-      const bodyGeo = new THREE.CylinderGeometry(0.9, 0.9, 3.6, 18);
+      // Parlak çekirdek
+      const coreGeo = new THREE.SphereGeometry(0.9, 24, 24);
+      const coreMat = new THREE.MeshStandardMaterial({
+        color: 0x22c55e,
+        emissive: 0x22c55e,
+        emissiveIntensity: 1.2,
+        metalness: 0.3,
+        roughness: 0.25,
+      });
+      const core = new THREE.Mesh(coreGeo, coreMat);
+      core.position.y = 1.7;
+      core.castShadow = true;
+      group.add(core);
+
+      // Gövde (enerji kapsülü)
+      const bodyGeo = new THREE.CapsuleGeometry(0.9, 2.2, 8, 16);
       const bodyMat = new THREE.MeshStandardMaterial({
         color: 0x38bdf8,
         emissive: 0x1d4ed8,
@@ -1114,34 +1207,29 @@
         metalness: 0.7,
       });
       const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.castShadow = true;
       group.add(body);
 
-      const headGeo = new THREE.SphereGeometry(1.1, 20, 20);
-      const headMat = new THREE.MeshStandardMaterial({
-        color: 0x22c55e,
-        emissive: 0x22c55e,
-        emissiveIntensity: 1,
-        metalness: 0.4,
-        roughness: 0.3,
+      // Kuyruk / enerji izi
+      const tailGeo = new THREE.CylinderGeometry(0.15, 0.7, 4.6, 18, 1, true);
+      const tailMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.9,
+        transparent: true,
+        opacity: 0.65,
+        metalness: 0.9,
+        roughness: 0.15,
+        side: THREE.DoubleSide
       });
-      const head = new THREE.Mesh(headGeo, headMat);
-      head.position.y = 2.3;
-      group.add(head);
+      const tail = new THREE.Mesh(tailGeo, tailMat);
+      tail.position.set(0, 0.1, -2.4);
+      tail.rotation.x = Math.PI / 2;
+      tail.castShadow = false;
+      group.add(tail);
 
-      const thrusterGeo = new THREE.ConeGeometry(0.9, 1.6, 16);
-      const thrusterMat = new THREE.MeshStandardMaterial({
-        color: 0xf97316,
-        emissive: 0xf97316,
-        emissiveIntensity: 0.8,
-        metalness: 0.6,
-        roughness: 0.4,
-      });
-      const thruster = new THREE.Mesh(thrusterGeo, thrusterMat);
-      thruster.position.y = -2.2;
-      thruster.rotation.x = Math.PI;
-      group.add(thruster);
-
-      const wingGeo = new THREE.BoxGeometry(0.4, 1.8, 3.6);
+      // Yan kanatlar
+      const wingGeo = new THREE.BoxGeometry(0.4, 1.8, 3.4);
       const wingMat = new THREE.MeshStandardMaterial({
         color: 0x0ea5e9,
         emissive: 0x0ea5e9,
@@ -1150,18 +1238,49 @@
         roughness: 0.4,
       });
       const wingL = new THREE.Mesh(wingGeo, wingMat);
-      wingL.position.set(-1.2, 0.2, 0);
+      wingL.position.set(-1.25, 0.4, 0);
       const wingR = wingL.clone();
-      wingR.position.x = 1.2;
+      wingR.position.x = 1.25;
+      wingL.castShadow = true;
+      wingR.castShadow = true;
       group.add(wingL, wingR);
 
-      const light = new THREE.PointLight(0x38bdf8, 1.5, 22);
+      // Alt thruster
+      const thrusterGeo = new THREE.ConeGeometry(0.9, 1.6, 18);
+      const thrusterMat = new THREE.MeshStandardMaterial({
+        color: 0xf97316,
+        emissive: 0xf97316,
+        emissiveIntensity: 0.9,
+        metalness: 0.6,
+        roughness: 0.4,
+      });
+      const thruster = new THREE.Mesh(thrusterGeo, thrusterMat);
+      thruster.position.y = -2.2;
+      thruster.rotation.x = Math.PI;
+      thruster.castShadow = true;
+      group.add(thruster);
+
+      // Altında "fake shadow" disk, zemini hissettirsin
+      const shadowGeo = new THREE.CircleGeometry(2.4, 28);
+      const shadowMat = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.38
+      });
+      const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+      shadow.rotation.x = -Math.PI / 2;
+      shadow.position.y = -2.25;
+      group.add(shadow);
+
+      // Işık
+      const light = new THREE.PointLight(0x38bdf8, 2.0, 26);
       light.position.set(0, 3, 0);
       group.add(light);
 
       const groundY = terrainHeight(0, 0);
       group.position.set(0, groundY + 2.2, 0);
       group.rotation.y = Math.PI;
+      group.castShadow = true;
       scene.add(group);
 
       player.x = 0;
@@ -1193,11 +1312,13 @@
         });
         const torso = new THREE.Mesh(torsoGeo, torsoMat);
         torso.position.y = 2;
+        torso.castShadow = true;
         g.add(torso);
 
         const headGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
         const head = new THREE.Mesh(headGeo, torsoMat);
         head.position.y = 2.9;
+        head.castShadow = true;
         g.add(head);
 
         const legGeo = new THREE.BoxGeometry(0.4, 1.4, 0.4);
@@ -1205,6 +1326,8 @@
         legL.position.set(-0.35, 1.1, 0);
         const legR = legL.clone();
         legR.position.x = 0.35;
+        legL.castShadow = true;
+        legR.castShadow = true;
         g.add(legL, legR);
 
         radius = 1.3;
@@ -1220,11 +1343,13 @@
         });
         const body = new THREE.Mesh(bodyGeo, bodyMat);
         body.position.y = 1.2;
+        body.castShadow = true;
         g.add(body);
 
         const headGeo = new THREE.SphereGeometry(0.6, 14, 14);
         const head = new THREE.Mesh(headGeo, bodyMat);
         head.position.set(0, 1.5, 0.9);
+        head.castShadow = true;
         g.add(head);
 
         const legGeo = new THREE.CylinderGeometry(0.15, 0.15, 1, 8);
@@ -1242,6 +1367,7 @@
         offsets.forEach(([x, z]) => {
           const leg = new THREE.Mesh(legGeo, legMat);
           leg.position.set(x, 0.7, z);
+          leg.castShadow = true;
           g.add(leg);
         });
 
@@ -1258,11 +1384,13 @@
         });
         const base = new THREE.Mesh(baseGeo, baseMat);
         base.position.y = 1.5;
+        base.castShadow = true;
         g.add(base);
 
         const headGeo = new THREE.SphereGeometry(0.9, 20, 20);
         const head = new THREE.Mesh(headGeo, baseMat);
         head.position.y = 2.8;
+        head.castShadow = true;
         g.add(head);
 
         const armGeo = new THREE.BoxGeometry(0.3, 1.2, 0.3);
@@ -1270,6 +1398,8 @@
         armL.position.set(-0.9, 2.2, 0);
         const armR = armL.clone();
         armR.position.x = 0.9;
+        armL.castShadow = true;
+        armR.castShadow = true;
         g.add(armL, armR);
 
         radius = 1.2;
@@ -1285,6 +1415,7 @@
         });
         const body = new THREE.Mesh(bodyGeo, bodyMat);
         body.position.y = 1.4;
+        body.castShadow = true;
         g.add(body);
 
         const legGeo = new THREE.ConeGeometry(0.25, 0.9, 8);
@@ -1298,11 +1429,14 @@
         legL.rotation.z = Math.PI / 2.4;
         const legR = legL.clone();
         legR.position.x = 0.45;
+        legL.castShadow = true;
+        legR.castShadow = true;
         g.add(legL, legR);
 
         radius = 1.0;
       }
 
+      g.castShadow = true;
       return { mesh: g, radius };
     }
 
@@ -1312,10 +1446,12 @@
       bullets.forEach(b => scene.remove(b.mesh));
       xpOrbs.forEach(o => scene.remove(o.mesh));
       effects.forEach(eff => scene.remove(eff.mesh));
+      hearts.forEach(h => scene.remove(h.mesh));
       enemies.length = 0;
       bullets.length = 0;
       xpOrbs.length = 0;
       effects.length = 0;
+      hearts.length = 0;
 
       player.x = 0;
       player.z = 0;
@@ -1350,10 +1486,10 @@
       level = 1;
       xp = 0;
       xpNeeded = 10;
-      spawnTimer = 0.8;
+      spawnTimer = 0.9;
       shootCooldown = 0;
       pendingLevelUps = 0;
-      cameraFollowSmooth = 0.14;
+      cameraFollowSmooth = 0.16;
       dayTime = 0;
       windTime = 0;
       cameraShake = 0;
@@ -1366,12 +1502,12 @@
     // SPAWNS
     function spawnEnemy() {
       const angle = Math.random() * Math.PI * 2;
-      const dist = 35 + Math.random() * 50;
+      const dist = 40 + Math.random() * 65;
       let x = player.x + Math.cos(angle) * dist;
       let z = player.z + Math.sin(angle) * dist;
 
-      x = clamp(x, -WORLD_SIZE / 2 + 6, WORLD_SIZE / 2 - 6);
-      z = clamp(z, -WORLD_SIZE / 2 + 6, WORLD_SIZE / 2 - 6);
+      x = clamp(x, -WORLD_SIZE / 2 + 8, WORLD_SIZE / 2 - 8);
+      z = clamp(z, -WORLD_SIZE / 2 + 8, WORLD_SIZE / 2 - 8);
 
       const t = Math.floor(Math.random() * 4);
       const { mesh, radius } = createEnemyMesh(t);
@@ -1428,6 +1564,7 @@
         metalness: 0.3,
       });
       const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
 
       const startX = origin ? origin.x : player.x;
       const startZ = origin ? origin.z : player.z;
@@ -1468,6 +1605,7 @@
       const mesh = new THREE.Mesh(geo, mat);
       const groundY = terrainHeight(x, z);
       mesh.position.set(x, groundY + 0.7, z);
+      mesh.castShadow = false;
       scene.add(mesh);
 
       xpOrbs.push({
@@ -1479,9 +1617,39 @@
       });
     }
 
+    function spawnHeart(x, z) {
+      const geo = new THREE.SphereGeometry(0.45, 14, 14);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xef4444,
+        emissive: 0xef4444,
+        emissiveIntensity: 0.9,
+        roughness: 0.35,
+        metalness: 0.3
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      const groundY = terrainHeight(x, z);
+      mesh.position.set(x, groundY + 0.9, z);
+      mesh.castShadow = true;
+      scene.add(mesh);
+
+      hearts.push({
+        x,
+        z,
+        radius: 0.6,
+        heal: 28,
+        mesh,
+        baseY: groundY + 0.9,
+        offset: Math.random() * Math.PI * 2
+      });
+    }
+
     function killEnemy(index) {
       const e = enemies[index];
       spawnXpOrb(e.x, e.z);
+      // Küçük ihtimalle can kalbi dropları
+      if (Math.random() < 0.16) {
+        spawnHeart(e.x, e.z);
+      }
       scene.remove(e.mesh);
       enemies.splice(index, 1);
       killCount++;
@@ -1520,6 +1688,8 @@
     }
 
     function updatePlayer(dt) {
+      if (!player.mesh) return;
+
       const forwardVec = normalize2(
         player.x - camera.position.x,
         player.z - camera.position.z
@@ -1539,7 +1709,7 @@
 
       // dash
       if (player.dashPower && joystickActive && player.onGround) {
-        const dashStrength = player.dashPower * dt * 6;
+        const dashStrength = player.dashPower * dt * 5.5;
         localX *= dashStrength;
         localZ *= dashStrength;
       }
@@ -1582,6 +1752,14 @@
 
       if (player.mesh) {
         player.mesh.position.set(player.x, player.y, player.z);
+        // Hafif nefes / enerji titreşimi
+        const t = elapsedTime;
+        const scalePulse = 1 + Math.sin(t * 4) * 0.05;
+        player.mesh.children.forEach(child => {
+          if (child.geometry instanceof THREE.SphereGeometry || child.geometry instanceof THREE.CapsuleGeometry) {
+            child.scale.set(scalePulse, scalePulse, scalePulse);
+          }
+        });
       }
 
       if (player.regen > 0) {
@@ -1779,12 +1957,32 @@
       }
     }
 
+    function updateHearts(dt) {
+      for (let i = hearts.length - 1; i >= 0; i--) {
+        const h = hearts[i];
+        const dx = player.x - h.x;
+        const dz = player.z - h.z;
+        const dist = Math.hypot(dx, dz);
+
+        // Hafif zıplama animasyonu
+        const bob = Math.sin(elapsedTime * 3 + h.offset) * 0.35;
+        h.mesh.position.y = h.baseY + bob;
+
+        if (dist < player.radius + h.radius) {
+          player.hp = clamp(player.hp + h.heal, 0, player.maxHp);
+          sHeal();
+          scene.remove(h.mesh);
+          hearts.splice(i, 1);
+        }
+      }
+    }
+
     function autoShoot(dt) {
       shootCooldown -= dt;
       if (shootCooldown > 0) return;
       if (enemies.length === 0) {
         // Hedef yoksa çok sık ateş etme
-        shootCooldown = 0.25;
+        shootCooldown = 0.35;
         return;
       }
 
@@ -1831,45 +2029,52 @@
       const sunY = Math.sin(angle);
       const sunX = Math.cos(angle);
 
-      sunLight.position.set(sunX * 80, sunY * 80 + 40, 30);
+      sunLight.position.set(sunX * 80, sunY * 80 + 60, 30);
 
       const lightStrength = clamp(sunY * 0.8 + 0.2, 0.05, 1.2);
-      ambientLight.intensity = 0.35 + lightStrength * 0.7;
-      sunLight.intensity = 0.6 + lightStrength * 1.4;
+      ambientLight.intensity = 0.4 + lightStrength * 0.7;
+      sunLight.intensity = 0.7 + lightStrength * 1.4;
 
       const mix = clamp(lightStrength, 0, 1);
       const bgColor = nightColor.clone().lerp(dayColor, mix);
       scene.background = bgColor;
       scene.fog.color.copy(bgColor);
-      scene.fog.density = 0.015 + (1 - mix) * 0.012;
+      scene.fog.density = 0.008 + (1 - mix) * 0.010;
 
       if (starMaterial) {
-        starMaterial.opacity = 0.15 + (1 - mix) * 0.85;
+        starMaterial.opacity = 0.1 + (1 - mix) * 0.9;
       }
 
       // Güneş & Ay mesh pozisyonları
       const orbitalRadius = 260;
       if (sunMesh) {
-        sunMesh.position.set(sunX * orbitalRadius, sunY * orbitalRadius * 0.8 + 40, 0);
-        sunMesh.material.opacity = clamp(lightStrength, 0.4, 1);
+        sunMesh.position.set(sunX * orbitalRadius, sunY * orbitalRadius * 0.8 + 60, -40);
+        sunMesh.material.opacity = clamp(lightStrength, 0.5, 1);
       }
       if (moonMesh) {
         const moonAngle = angle + Math.PI;
         const mY = Math.sin(moonAngle);
         const mX = Math.cos(moonAngle);
-        moonMesh.position.set(mX * orbitalRadius, mY * orbitalRadius * 0.8 + 40, 0);
+        moonMesh.position.set(mX * orbitalRadius, mY * orbitalRadius * 0.8 + 60, -60);
         const moonVis = clamp(0.4 + (1 - lightStrength), 0.2, 1);
         moonMesh.material.opacity = moonVis;
       }
 
       if (groundMaterial) {
         groundMaterial.roughness = 0.85 - mix * 0.25;
-        groundMaterial.metalness = 0.25 + mix * 0.15;
+        groundMaterial.metalness = 0.22 + mix * 0.16;
+      }
+      if (waterMaterial) {
+        // Su rengi gün içinde hafif değişsin
+        const base = new THREE.Color(0x1d4ed8);
+        const dayTint = new THREE.Color(0x38bdf8);
+        waterMaterial.color = base.clone().lerp(dayTint, mix * 0.5);
+        waterMaterial.opacity = 0.45 + mix * 0.2;
       }
 
       // HUD build text: fazı göster
       let phase;
-      if (t < 0.2) phase = "Dawn";
+      if (t < 0.18) phase = "Dawn";
       else if (t < 0.5) phase = "Day";
       else if (t < 0.7) phase = "Dusk";
       else phase = "Night";
@@ -1880,18 +2085,20 @@
     function updateCamera(dt) {
       if (!player.mesh || !camera) return;
 
-      const camDist = 55;
-      const camHeight = 30;
-
-      const targetX = player.x + Math.sin(cameraYaw) * camDist;
-      const targetZ = player.z + Math.cos(cameraYaw) * camDist;
-      const targetY = player.y + camHeight;
-
+      const camDist = 40;
       const lerpFactor = 1 - Math.pow(1 - cameraFollowSmooth, dt * 60);
 
-      camera.position.x += (targetX - camera.position.x) * lerpFactor;
-      camera.position.y += (targetY - camera.position.y) * lerpFactor;
-      camera.position.z += (targetZ - camera.position.z) * lerpFactor;
+      const dirX = Math.sin(cameraYaw) * Math.cos(cameraPitch);
+      const dirZ = Math.cos(cameraYaw) * Math.cos(cameraPitch);
+      const dirY = Math.sin(cameraPitch);
+
+      const desiredX = player.x - dirX * camDist;
+      const desiredY = player.y + 3 + dirY * camDist;
+      const desiredZ = player.z - dirZ * camDist;
+
+      camera.position.x += (desiredX - camera.position.x) * lerpFactor;
+      camera.position.y += (desiredY - camera.position.y) * lerpFactor;
+      camera.position.z += (desiredZ - camera.position.z) * lerpFactor;
 
       // Kamera shake (vurgu için)
       if (cameraShake > 0) {
@@ -1902,7 +2109,7 @@
         cameraShake = Math.max(0, cameraShake - dt * 1.8);
       }
 
-      camera.lookAt(player.x, player.y + 2, player.z);
+      camera.lookAt(player.x, player.y + 1.8, player.z);
     }
 
     function updateUI() {
@@ -2002,8 +2209,8 @@
       });
 
       cameraShake = Math.max(cameraShake, 0.2);
-      playSound({ freqStart: 220, freqEnd: 80, duration: 0.3, volume: 0.6, type: "square" });
-      playSound({ freqStart: 1200, freqEnd: 420, duration: 0.25, volume: 0.45, type: "triangle" });
+      playSound({ freqStart: 220, freqEnd: 80, duration: 0.3, volume: 0.45, type: "square" });
+      playSound({ freqStart: 1200, freqEnd: 420, duration: 0.25, volume: 0.32, type: "triangle" });
     }
 
     function updateEffects(dt) {
@@ -2033,6 +2240,12 @@
           const t = windTime * swaySpeed + o.swayOffset;
           o.mesh.rotation.z = Math.sin(t) * swayStrength;
         }
+      }
+
+      // Suyun hafif dalgalanması
+      if (waterMaterial) {
+        const wave = 0.02 * Math.sin(windTime * 0.9);
+        waterMaterial.normalScale = new THREE.Vector2(1 + wave, 1 + wave);
       }
     }
 
@@ -2107,9 +2320,9 @@
           initAudio();
           tryJump();
         }
-        // İstersen Q/E ile kamera yaw da eklenebilir
-        if (k === "q" || k === "Q") cameraYaw -= 0.15;
-        if (k === "e" || k === "E") cameraYaw += 0.15;
+        // Q/E ile kamera yaw
+        if (k === "q" || k === "Q") cameraYaw -= 0.18;
+        if (k === "e" || k === "E") cameraYaw += 0.18;
       });
 
       window.addEventListener("keyup", (e) => {
@@ -2174,7 +2387,7 @@
         spawnTimer -= dt;
         if (spawnTimer <= 0) {
           spawnEnemy();
-          const spawnInterval = Math.max(0.25, 0.9 - elapsedTime / 80);
+          const spawnInterval = Math.max(0.3, 0.9 - elapsedTime / 90);
           spawnTimer = spawnInterval;
         }
 
@@ -2182,6 +2395,7 @@
         updateEnemies(dt);
         updateBullets(dt);
         updateXpOrbs(dt);
+        updateHearts(dt);
         autoShoot(dt);
 
         if (novaInterval > 0) {
