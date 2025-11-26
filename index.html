@@ -1004,25 +1004,29 @@
         const z = pos.getZ(i);
         const y = terrainHeight(x, z);
         pos.setY(i, y);
-
-        // Yükseğe göre renk: vadi su/çamur, ova çimen, yüksek dağ taşı
+      
+        // Desert palette (kum tonları)
         let r, g, b;
-        if (y < -6) {
-          // Suyun altı koyu mavi-yeşil ton
-          r = 0.04; g = 0.24; b = 0.32;
-        } else if (y < -2) {
-          r = 0.06; g = 0.32; b = 0.20;
+      
+        if (y < -4) {
+          // En alçak yerler: biraz daha koyu, taşlı/kuru zemin
+          r = 0.55; g = 0.46; b = 0.32;   // koyu kum / toprak
         } else if (y < 4) {
-          r = 0.13; g = 0.58; b = 0.28;
+          // Ana zemin: klasik çöl kumu
+          r = 0.82; g = 0.72; b = 0.52;   // sıcak sarımsı kum
         } else if (y < 10) {
-          r = 0.32; g = 0.62; b = 0.36;
+          // Tepelere doğru: daha açık, güneş yemiş kum
+          r = 0.88; g = 0.80; b = 0.60;   // açık kum
         } else {
-          r = 0.68; g = 0.68; b = 0.71;
+          // En yüksekler: taş/dağ rengi kalsın
+          r = 0.65; g = 0.63; b = 0.66;   // kayalık gri
         }
+      
         colors[i * 3 + 0] = r;
         colors[i * 3 + 1] = g;
         colors[i * 3 + 2] = b;
       }
+
 
       groundGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
       pos.needsUpdate = true;
