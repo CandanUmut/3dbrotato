@@ -1091,11 +1091,11 @@
       
 
       const water = new THREE.Mesh(waterGeo, waterMaterial);
-      water.rotation.x = -Math.PI / 2;
-      water.position.y = -11.0;  // zeminden biraz daha uzak
-      water.receiveShadow = true;
-      scene.add(water);
-    }
+        water.rotation.x = -Math.PI / 2;
+        water.position.y = -11.0;  // zeminden biraz daha uzak
+        water.receiveShadow = true;
+        scene.add(water);
+      }
 
     function createTree(x, z) {
       const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 4, 6);
