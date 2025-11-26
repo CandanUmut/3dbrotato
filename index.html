@@ -1004,28 +1004,53 @@
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
         const z = pos.getZ(i);
-        const y = terrainHeight(x, z);
+        
+        let y = terrainHeight(x, z);
+        
+        // küçük dalgalanma – sadece birkaç santim
+        const microScale = 0.08;
+        const micro = Perlin.noise(x * microScale + 200, z * microScale + 200) * 0.8;
+        y += micro;
+        
         pos.setY(i, y);
+
     
         // --- ÇÖL / KUM PALETİ + ÇOK DAHA PARLAK ---
         let r, g, b;
-    
+
+        // temel kum tonu
         if (y < -4) {
-          // En alçak: biraz koyu kum
           r = 0.80; g = 0.70; b = 0.55;
         } else if (y < 4) {
-          // Ana zemin: belirgin açık kum
           r = 0.93; g = 0.84; b = 0.66;
         } else if (y < 10) {
-          // Tepeler: güneşte iyice açılmış kum
           r = 0.98; g = 0.91; b = 0.75;
         } else {
-          // En yüksekler: kayalık ton
           r = 0.75; g = 0.72; b = 0.70;
         }
-    
+        
+        // ÜZERİNE hafif “kir / çimen” dokusu
+        const cNoise = Perlin.noise(x * 0.03 + 500, z * 0.03 + 500); // -1..1 civarı
+        // 0..1'e map
+        const t = (cNoise + 1) * 0.5;
+        
+        // düz kum -> hafif yeşilimsi kahve karışımı
+        // (burada tam çimen yapmak istemezsen daha da sarı bırakabilirsin)
+        const grassR = r * 0.9;
+        const grassG = g * 1.1;
+        const grassB = b * 0.9;
+        
+        // t'yi çok agresif yapma, küçük bir karışım olsun
+        const mix = 0.25 * t;
+        
+        r = r * (1 - mix) + grassR * mix;
+        g = g * (1 - mix) + grassG * mix;
+        b = b * (1 - mix) + grassB * mix;
+        
         colors[i * 3 + 0] = r;
         colors[i * 3 + 1] = g;
+        colors[i * 3 + 2] = b;
+
         colors[i * 3 + 2] = b;
       }
     
@@ -1033,11 +1058,14 @@
       pos.needsUpdate = true;
       groundGeo.computeVertexNormals();
     
-      groundMaterial = new THREE.MeshStandardMaterial({
+     groundMaterial = new THREE.MeshStandardMaterial({
         vertexColors: true,
-        metalness: 0.1,
-        roughness: 0.8,
+        metalness: 0.05,
+        roughness: 0.55,
+        emissive: new THREE.Color(0x111111),  // hafif parıltı
+        emissiveIntensity: 0.35
       });
+
     
       const ground = new THREE.Mesh(groundGeo, groundMaterial);
       ground.rotation.x = -Math.PI / 2;
@@ -1056,13 +1084,15 @@
       waterMaterial = new THREE.MeshStandardMaterial({
         color: 0x1d4ed8,
         transparent: true,
-        opacity: 0.55,
-        metalness: 0.9,
-        roughness: 0.18
+        opacity: 0.28,     // daha hafif
+        metalness: 0.7,
+        roughness: 0.25
       });
+      
+
       const water = new THREE.Mesh(waterGeo, waterMaterial);
       water.rotation.x = -Math.PI / 2;
-      water.position.y = -8.5;
+      water.position.y = -11.0;  // zeminden biraz daha uzak
       water.receiveShadow = true;
       scene.add(water);
     }
