@@ -335,6 +335,32 @@
       touch-action: none;
     }
 
+    /* Jump button (mobil) */
+    #btn-jump {
+      position: absolute;
+      right: 18px;
+      bottom: 26px;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      border: 1px solid rgba(148, 163, 184, 0.9);
+      background: radial-gradient(circle at top, #22c55e, #14532d);
+      color: #e5e7eb;
+      font-weight: 700;
+      font-size: 20px;
+      box-shadow: 0 10px 30px rgba(34, 197, 94, 0.9);
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    #btn-jump:active {
+      transform: translateY(2px) scale(0.97);
+      box-shadow: 0 6px 16px rgba(34, 197, 94, 0.8);
+    }
+
     @media (max-width: 768px) {
       #xp-wrapper {
         width: 92%;
@@ -379,7 +405,7 @@
         </div>
         <div class="hud-pill">
           <span class="hud-label">BUILD</span>
-          <span class="hud-value" id="hud-build">3D Alpha</span>
+          <span class="hud-value" id="hud-build">3D Terrain</span>
         </div>
       </div>
     </div>
@@ -394,8 +420,8 @@
 
     <!-- Hint -->
     <div id="hint">
-      PC: WASD / ok tuşları · Mobil: sol ortadaki joystick<br/>
-      Otomatik ateş en yakın düşmana, XP orblarını toplayarak seviye atla. Level-up olduğunda bir upgrade seç.
+      PC: WASD / ok tuşları, fareyi sürükleyerek etrafa bak · Space: zıpla<br/>
+      Mobil: sol ortadaki joystick + sağ alttaki zıplama butonu. Level-up olduğunda upgrade seç.
     </div>
 
     <!-- Start screen -->
@@ -403,7 +429,8 @@
       <div class="screen-card">
         <h1 class="screen-title">Nova Arena 3D</h1>
         <p class="screen-sub">
-          Sonsuz 3D arenada hayatta kal, farklı düşman tiplerini temizle, XP topla ve level-up olduğunda build'ini güçlendir.
+          Perlin noise ile üretilmiş bir arazide, gece-gündüz döngüsü altında hayatta kal.
+          Etrafına bak, zıpla, bacaklı düşman sürülerini temizle ve build'ini güçlendir.
         </p>
         <div class="screen-toggle">
           <label>
@@ -457,35 +484,102 @@
         <div id="joystick-knob"></div>
       </div>
     </div>
+
+    <!-- Jump button (mobile) -->
+    <button id="btn-jump">⤴</button>
   </div>
 
   <!-- Three.js CDN -->
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 
   <script>
-    // === TEMEL DEĞİŞKENLER ===
-    const WORLD_SIZE = 230;
+    // === TEMEL SABİTLER / DURUM ===
+    const WORLD_SIZE = 260;
 
     let scene, camera, renderer;
     let lastTime = performance.now();
     let gameState = "start";
     let isPausedForUpgrade = false;
 
+    // Kamera & gün döngüsü
+    let cameraFollowSmooth = 0.12;
+    let cameraYaw = Math.PI; // etrafa bakma için
+    let isDraggingCam = false;
+    let lastCamX = 0;
+    let dayTime = 0;
+    const DAY_LENGTH = 120; // saniye
+
+    // Aydınlatma ve gökyüzü
+    let ambientLight, sunLight, starMaterial;
+
+    // Perlin noise
+    const Perlin = (() => {
+      const permutation = [];
+      for (let i = 0; i < 256; i++) permutation[i] = i;
+      // shuffle
+      for (let i = 255; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0;
+        [permutation[i], permutation[j]] = [permutation[j], permutation[i]];
+      }
+      const p = new Uint8Array(512);
+      for (let i = 0; i < 512; i++) p[i] = permutation[i & 255];
+
+      function fade(t) {
+        return t * t * t * (t * (t * 6 - 15) + 10);
+      }
+      function lerp(t, a, b) {
+        return a + t * (b - a);
+      }
+      function grad(hash, x, y) {
+        const h = hash & 3;
+        const u = h < 2 ? x : y;
+        const v = h < 2 ? y : x;
+        return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+      }
+      function noise(x, y) {
+        let X = Math.floor(x) & 255;
+        let Y = Math.floor(y) & 255;
+        x -= Math.floor(x);
+        y -= Math.floor(y);
+        const u = fade(x);
+        const v = fade(y);
+        const A = p[X] + Y;
+        const B = p[X + 1] + Y;
+        return lerp(
+          v,
+          lerp(u, grad(p[A], x, y), grad(p[B], x - 1, y)),
+          lerp(u, grad(p[A + 1], x, y - 1), grad(p[B + 1], x - 1, y - 1))
+        );
+      }
+      return { noise };
+    })();
+
+    function terrainHeight(x, z) {
+      const s1 = 0.03;
+      const s2 = 0.08;
+      const h1 = Perlin.noise(x * s1, z * s1) * 4;
+      const h2 = Perlin.noise(x * s2 + 100, z * s2 + 100) * 2;
+      return h1 + h2 - 4; // biraz aşağı shift
+    }
+
     const player = {
       x: 0,
       z: 0,
-      y: 1.5,
+      y: 2,
       radius: 1.3,
       speed: 18,
       hp: 100,
       maxHp: 100,
       regen: 0,
-      damage: 22,
-      fireRate: 2.4,
-      bulletSpeed: 40,
+      damage: 26,
+      fireRate: 2.6,
+      bulletSpeed: 42,
       bulletLife: 3,
       pickupRadius: 7.5,
       mesh: null,
+      vy: 0,
+      jumpOffset: 0,
+      onGround: true
     };
 
     const enemies = [];
@@ -503,7 +597,7 @@
 
     const keyState = { up: false, down: false, left: false, right: false };
 
-    // === AUDIO ===
+    // Audio
     let audioCtx = null;
     let soundEnabled = true;
 
@@ -530,23 +624,23 @@
     }
 
     function playShoot() {
-      playBeep(720, 0.09, 0.35);
+      playBeep(780, 0.09, 0.4);
     }
-
     function playPickup() {
-      playBeep(540, 0.12, 0.4);
+      playBeep(540, 0.12, 0.45);
     }
-
     function playHit() {
-      playBeep(160, 0.1, 0.45);
+      playBeep(160, 0.1, 0.5);
     }
-
     function playLevelUp() {
-      playBeep(880, 0.14, 0.5);
-      setTimeout(() => playBeep(1180, 0.14, 0.45), 90);
+      playBeep(880, 0.14, 0.55);
+      setTimeout(() => playBeep(1180, 0.14, 0.5), 90);
+    }
+    function playJump() {
+      playBeep(660, 0.08, 0.4);
     }
 
-    // === UI ELEMANLARI ===
+    // UI elemanları
     const hudHp = document.getElementById("hud-hp");
     const hudLevel = document.getElementById("hud-level");
     const hudKills = document.getElementById("hud-kills");
@@ -565,6 +659,7 @@
     const btnStart = document.getElementById("btn-start");
     const btnRestart = document.getElementById("btn-restart");
     const btnQuit = document.getElementById("btn-quit");
+    const btnJump = document.getElementById("btn-jump");
 
     const statTime = document.getElementById("stat-time");
     const statKills = document.getElementById("stat-kills");
@@ -577,7 +672,7 @@
     let joystickCenter = { x: 0, y: 0 };
     let joystickVec = { x: 0, z: 0 };
 
-    // === UPGRADES ===
+    // Upgrades
     let currentUpgradeChoices = [];
 
     const ALL_UPGRADES = [
@@ -606,14 +701,14 @@
         id: "damage_2",
         name: "Critical Core",
         tag: "Attack",
-        desc: "Hasarın %20 artar, her vuruşta küçük ekstra hasar şansı.",
-        apply() { player.damage *= 1.2; player.critChance = (player.critChance || 0) + 0.12; }
+        desc: "Hasarın %20 artar, kritik ihtimali eklenir.",
+        apply() { player.damage *= 1.2; player.critChance = (player.critChance || 0) + 0.15; }
       },
       {
         id: "hp_1",
         name: "Titan Shell",
         tag: "Defense",
-        desc: "Max HP +35, anında +25 HP doldur.",
+        desc: "Max HP +35, anında +25 HP.",
         apply() { player.maxHp += 35; player.hp = Math.min(player.maxHp, player.hp + 25); }
       },
       {
@@ -641,12 +736,12 @@
         id: "control_1",
         name: "Drift Thrusters",
         tag: "Utility",
-        desc: "Hareket daha akıcı, kamera takibi daha yumuşak.",
+        desc: "Kamera takibi ve kontrol daha yumuşak.",
         apply() { cameraFollowSmooth = 0.16; }
       }
     ];
 
-    // === YARDIMCI FONKSİYONLAR ===
+    // Yardımcılar
     function clamp(v, min, max) {
       return v < min ? min : v > max ? max : v;
     }
@@ -667,7 +762,7 @@
       const pool = ALL_UPGRADES.slice();
       const choices = [];
       for (let i = 0; i < n && pool.length > 0; i++) {
-        const idx = Math.floor(Math.random() * pool.length);
+        const idx = (Math.random() * pool.length) | 0;
         choices.push(pool.splice(idx, 1)[0]);
       }
       return choices;
@@ -690,7 +785,7 @@
       currentUpgradeChoices = sampleUpgrades(3);
       upgradeOptions.innerHTML = "";
 
-      currentUpgradeChoices.forEach((upg, index) => {
+      currentUpgradeChoices.forEach((upg) => {
         const card = document.createElement("div");
         card.className = "upgrade-card";
         card.innerHTML = `
@@ -722,9 +817,7 @@
       }, 150);
     }
 
-    // === THREE.JS SAHNE ===
-    let cameraFollowSmooth = 0.12;
-
+    // === THREE SAHNE ===
     function initThree() {
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x020617);
@@ -734,9 +827,9 @@
         60,
         window.innerWidth / window.innerHeight,
         0.1,
-        700
+        800
       );
-      camera.position.set(0, 45, 55);
+      camera.position.set(0, 50, 60);
       camera.lookAt(0, 0, 0);
 
       renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -746,36 +839,20 @@
       document.getElementById("game-root").appendChild(renderer.domElement);
 
       // Işıklar
-      const ambient = new THREE.AmbientLight(0xffffff, 0.95);
-      scene.add(ambient);
+      ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      scene.add(ambientLight);
 
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
-      dirLight.position.set(30, 60, 30);
-      scene.add(dirLight);
+      sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      sunLight.position.set(40, 70, 20);
+      sunLight.castShadow = false;
+      scene.add(sunLight);
 
-      const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.7);
-      rimLight.position.set(-40, 50, -40);
+      const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.6);
+      rimLight.position.set(-60, 40, -40);
       scene.add(rimLight);
 
-      // Zemin
-      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 40, 40);
-      const groundMat = new THREE.MeshStandardMaterial({
-        color: 0x020617,
-        metalness: 0.3,
-        roughness: 0.9,
-      });
-      const ground = new THREE.Mesh(groundGeo, groundMat);
-      ground.rotation.x = -Math.PI / 2;
-      ground.receiveShadow = true;
-      scene.add(ground);
-
-      // Neon grid çizgileri
-      const grid = new THREE.GridHelper(WORLD_SIZE, 40, 0x38bdf8, 0x1e293b);
-      grid.position.y = 0.02;
-      scene.add(grid);
-
-      // Arena sütunları
-      createPillars();
+      // Arazi
+      createTerrain();
 
       // Yıldızlar
       createStarField();
@@ -783,56 +860,77 @@
       // Player
       createPlayer();
 
+      // Kamera drag
+      renderer.domElement.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        // UI'ye tıklamadığından emin ol
+        if (e.target !== renderer.domElement) return;
+        isDraggingCam = true;
+        lastCamX = e.clientX;
+      });
+      window.addEventListener("pointermove", (e) => {
+        if (!isDraggingCam) return;
+        const dx = e.clientX - lastCamX;
+        lastCamX = e.clientX;
+        cameraYaw -= dx * 0.004;
+      });
+      window.addEventListener("pointerup", () => {
+        isDraggingCam = false;
+      });
+      window.addEventListener("pointercancel", () => {
+        isDraggingCam = false;
+      });
+
       window.addEventListener("resize", onWindowResize);
     }
 
-    function createPillars() {
-      const pillarGeo = new THREE.CylinderGeometry(1.3, 1.3, 12, 12);
-      const pillarMat = new THREE.MeshStandardMaterial({
-        color: 0x0f172a,
-        emissive: 0x1d4ed8,
-        emissiveIntensity: 0.4,
-        metalness: 0.5,
-        roughness: 0.4,
+    function createTerrain() {
+      const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 80, 80);
+      const pos = groundGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const z = pos.getZ(i);
+        const y = terrainHeight(x, z);
+        pos.setY(i, y);
+      }
+      pos.needsUpdate = true;
+      groundGeo.computeVertexNormals();
+
+      const groundMat = new THREE.MeshStandardMaterial({
+        color: 0x14532d,
+        metalness: 0.25,
+        roughness: 0.9,
       });
-      const positions = [
-        [-WORLD_SIZE / 2 + 10, -WORLD_SIZE / 2 + 10],
-        [WORLD_SIZE / 2 - 10, -WORLD_SIZE / 2 + 10],
-        [-WORLD_SIZE / 2 + 10, WORLD_SIZE / 2 - 10],
-        [WORLD_SIZE / 2 - 10, WORLD_SIZE / 2 - 10],
-        [0, -WORLD_SIZE / 2 + 14],
-        [0, WORLD_SIZE / 2 - 14]
-      ];
-      positions.forEach(([x,z]) => {
-        const p = new THREE.Mesh(pillarGeo, pillarMat);
-        p.position.set(x, 6, z);
-        scene.add(p);
-      });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // Hafif grid overlay (yüksekliğe bakmadan)
+      const grid = new THREE.GridHelper(WORLD_SIZE, 40, 0x38bdf8, 0x111827);
+      grid.position.y = 0.1;
+      scene.add(grid);
     }
 
     function createStarField() {
       const starCount = 900;
       const positions = new Float32Array(starCount * 3);
       for (let i = 0; i < starCount; i++) {
-        positions[i * 3 + 0] = (Math.random() - 0.5) * 450;
-        positions[i * 3 + 1] = 40 + Math.random() * 120;
-        positions[i * 3 + 2] = (Math.random() - 0.5) * 450;
+        positions[i * 3 + 0] = (Math.random() - 0.5) * 480;
+        positions[i * 3 + 1] = 60 + Math.random() * 180;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 480;
       }
       const starGeo = new THREE.BufferGeometry();
       starGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-      const starMat = new THREE.PointsMaterial({
+      starMaterial = new THREE.PointsMaterial({
         color: 0xffffff,
         size: 1.1,
         sizeAttenuation: true,
+        transparent: true,
+        opacity: 0.9
       });
-      const stars = new THREE.Points(starGeo, starMat);
+      const stars = new THREE.Points(starGeo, starMaterial);
       scene.add(stars);
-    }
-
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
     function createPlayer() {
@@ -850,6 +948,7 @@
       const body = new THREE.Mesh(bodyGeo, bodyMat);
       group.add(body);
 
+      // Kafa
       const headGeo = new THREE.SphereGeometry(1.1, 20, 20);
       const headMat = new THREE.MeshStandardMaterial({
         color: 0x22c55e,
@@ -862,6 +961,7 @@
       head.position.y = 2.3;
       group.add(head);
 
+      // Thruster
       const thrusterGeo = new THREE.ConeGeometry(0.9, 1.6, 16);
       const thrusterMat = new THREE.MeshStandardMaterial({
         color: 0xf97316,
@@ -875,6 +975,7 @@
       thruster.rotation.x = Math.PI;
       group.add(thruster);
 
+      // Kanatlar
       const wingGeo = new THREE.BoxGeometry(0.4, 1.8, 3.6);
       const wingMat = new THREE.MeshStandardMaterial({
         color: 0x0ea5e9,
@@ -893,14 +994,154 @@
       light.position.set(0, 3, 0);
       group.add(light);
 
-      group.position.set(0, player.y, 0);
-      group.rotation.y = Math.PI; // ileri doğru bakış
+      const groundY = terrainHeight(0, 0);
+      group.position.set(0, groundY + 2.2, 0);
+      group.rotation.y = Math.PI;
       scene.add(group);
 
+      player.x = 0;
+      player.z = 0;
+      player.y = groundY + 2.2;
       player.mesh = group;
     }
 
-    // === GAME STATE RESET ===
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // === DÜŞMAN MODELLEME ===
+    function createEnemyMesh(type) {
+      const g = new THREE.Group();
+      let radius = 1.3;
+
+      if (type === 0) {
+        // Walker (insansı, 2 bacak)
+        const torsoGeo = new THREE.BoxGeometry(1, 1.8, 0.8);
+        const torsoMat = new THREE.MeshStandardMaterial({
+          color: 0xf97316,
+          emissive: 0xf97316,
+          emissiveIntensity: 0.6,
+          roughness: 0.4,
+          metalness: 0.5,
+        });
+        const torso = new THREE.Mesh(torsoGeo, torsoMat);
+        torso.position.y = 2;
+        g.add(torso);
+
+        const headGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+        const head = new THREE.Mesh(headGeo, torsoMat);
+        head.position.y = 2.9;
+        g.add(head);
+
+        const legGeo = new THREE.BoxGeometry(0.4, 1.4, 0.4);
+        const legL = new THREE.Mesh(legGeo, torsoMat);
+        legL.position.set(-0.35, 1.1, 0);
+        const legR = legL.clone();
+        legR.position.x = 0.35;
+        g.add(legL, legR);
+
+        radius = 1.3;
+      } else if (type === 1) {
+        // Crawler (4 ayaklı yaratık)
+        const bodyGeo = new THREE.BoxGeometry(1.8, 0.8, 1.2);
+        const bodyMat = new THREE.MeshStandardMaterial({
+          color: 0x22c55e,
+          emissive: 0x22c55e,
+          emissiveIntensity: 0.7,
+          roughness: 0.4,
+          metalness: 0.5,
+        });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.position.y = 1.2;
+        g.add(body);
+
+        const headGeo = new THREE.SphereGeometry(0.6, 14, 14);
+        const head = new THREE.Mesh(headGeo, bodyMat);
+        head.position.set(0, 1.5, 0.9);
+        g.add(head);
+
+        const legGeo = new THREE.CylinderGeometry(0.15, 0.15, 1, 8);
+        const legMat = new THREE.MeshStandardMaterial({
+          color: 0x166534,
+          emissive: 0x16a34a,
+          emissiveIntensity: 0.5,
+        });
+        const offsets = [
+          [-0.7, 0.7],
+          [0.7, 0.7],
+          [-0.7, -0.7],
+          [0.7, -0.7],
+        ];
+        offsets.forEach(([x, z]) => {
+          const leg = new THREE.Mesh(legGeo, legMat);
+          leg.position.set(x, 0.7, z);
+          g.add(leg);
+        });
+
+        radius = 1.4;
+      } else if (type === 2) {
+        // Sentinel (uzun gözetleyici)
+        const baseGeo = new THREE.CylinderGeometry(0.7, 1.2, 2.6, 12);
+        const baseMat = new THREE.MeshStandardMaterial({
+          color: 0x6366f1,
+          emissive: 0x4f46e5,
+          emissiveIntensity: 0.9,
+          roughness: 0.35,
+          metalness: 0.7,
+        });
+        const base = new THREE.Mesh(baseGeo, baseMat);
+        base.position.y = 1.5;
+        g.add(base);
+
+        const headGeo = new THREE.SphereGeometry(0.9, 20, 20);
+        const head = new THREE.Mesh(headGeo, baseMat);
+        head.position.y = 2.8;
+        g.add(head);
+
+        const armGeo = new THREE.BoxGeometry(0.3, 1.2, 0.3);
+        const armL = new THREE.Mesh(armGeo, baseMat);
+        armL.position.set(-0.9, 2.2, 0);
+        const armR = armL.clone();
+        armR.position.x = 0.9;
+        g.add(armL, armR);
+
+        radius = 1.2;
+      } else {
+        // Hopper (küçük zıplayan böcek)
+        const bodyGeo = new THREE.SphereGeometry(0.9, 14, 14);
+        const bodyMat = new THREE.MeshStandardMaterial({
+          color: 0x0ea5e9,
+          emissive: 0x0ea5e9,
+          emissiveIntensity: 0.8,
+          roughness: 0.4,
+          metalness: 0.6,
+        });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.position.y = 1.4;
+        g.add(body);
+
+        const legGeo = new THREE.ConeGeometry(0.25, 0.9, 8);
+        const legMat = new THREE.MeshStandardMaterial({
+          color: 0x0369a1,
+          emissive: 0x0369a1,
+          emissiveIntensity: 0.7,
+        });
+        const legL = new THREE.Mesh(legGeo, legMat);
+        legL.position.set(-0.45, 0.7, 0.4);
+        legL.rotation.z = Math.PI / 2.4;
+        const legR = legL.clone();
+        legR.position.x = 0.45;
+        g.add(legL, legR);
+
+        radius = 1.0;
+      }
+
+      return { mesh: g, radius };
+    }
+
+    // === GAME RESET ===
     function resetGame() {
       enemies.forEach(e => scene.remove(e.mesh));
       bullets.forEach(b => scene.remove(b.mesh));
@@ -911,16 +1152,21 @@
 
       player.x = 0;
       player.z = 0;
+      player.jumpOffset = 0;
+      player.vy = 0;
+      player.onGround = true;
       player.hp = 100;
       player.maxHp = 100;
       player.regen = 0;
-      player.damage = 22;
-      player.fireRate = 2.4;
-      player.bulletSpeed = 40;
+      player.damage = 26;
+      player.fireRate = 2.6;
+      player.bulletSpeed = 42;
       player.bulletLife = 3;
       player.pickupRadius = 7.5;
       player.critChance = 0;
 
+      const groundY = terrainHeight(player.x, player.z);
+      player.y = groundY + 2.2;
       if (player.mesh) {
         player.mesh.position.set(player.x, player.y, player.z);
       }
@@ -930,84 +1176,55 @@
       level = 1;
       xp = 0;
       xpNeeded = 10;
-      spawnTimer = 0.7;
+      spawnTimer = 0.5;
       shootCooldown = 0;
       pendingLevelUps = 0;
       cameraFollowSmooth = 0.12;
 
-      hudBuild.textContent = "3D Alpha";
+      hudBuild.textContent = "3D Terrain";
     }
 
     // === ENEMIES / BULLETS / XP ===
     function spawnEnemy() {
       const angle = Math.random() * Math.PI * 2;
-      const dist = 35 + Math.random() * 45;
+      const dist = 35 + Math.random() * 50;
       let x = player.x + Math.cos(angle) * dist;
       let z = player.z + Math.sin(angle) * dist;
 
       x = clamp(x, -WORLD_SIZE / 2 + 6, WORLD_SIZE / 2 - 6);
       z = clamp(z, -WORLD_SIZE / 2 + 6, WORLD_SIZE / 2 - 6);
 
-      const t = Math.floor(Math.random() * 4); // 0–3 arası tip
+      const t = Math.floor(Math.random() * 4);
 
-      let geo, color, emissive, radius, baseHp, baseSpeed, damage;
-      const timeFactor = 1 + elapsedTime / 120;
-
-      switch (t) {
-        case 0: // basic chaser
-          geo = new THREE.SphereGeometry(1.1, 16, 16);
-          color = 0xf97316;
-          emissive = 0xf97316;
-          radius = 1.1;
-          baseHp = 35 * timeFactor;
-          baseSpeed = 10;
-          damage = 8 * timeFactor;
-          break;
-        case 1: // fast cube
-          geo = new THREE.BoxGeometry(1.4, 1.4, 1.4);
-          color = 0x22c55e;
-          emissive = 0x22c55e;
-          radius = 1.2;
-          baseHp = 30 * timeFactor;
-          baseSpeed = 14;
-          damage = 10 * timeFactor;
-          break;
-        case 2: // tank
-          geo = new THREE.CylinderGeometry(1.5, 1.5, 2.4, 10);
-          color = 0x64748b;
-          emissive = 0x0f172a;
-          radius = 1.5;
-          baseHp = 75 * timeFactor;
-          baseSpeed = 6.5;
-          damage = 14 * timeFactor;
-          break;
-        case 3: // turret-like
-          geo = new THREE.ConeGeometry(1.1, 2.4, 14);
-          color = 0x6366f1;
-          emissive = 0x4f46e5;
-          radius = 1.1;
-          baseHp = 45 * timeFactor;
-          baseSpeed = 5;
-          damage = 12 * timeFactor;
-          break;
-      }
-
-      const mat = new THREE.MeshStandardMaterial({
-        color,
-        emissive,
-        emissiveIntensity: 0.6,
-        roughness: 0.35,
-        metalness: 0.6,
-      });
-
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x, 1.1, z);
+      const { mesh, radius } = createEnemyMesh(t);
+      const groundY = terrainHeight(x, z);
+      mesh.position.set(x, groundY + 1.4, z);
       scene.add(mesh);
+
+      const timeFactor = 1 + elapsedTime / 180;
+
+      // Kolay kesilsin diye düşük HP
+      let baseHp = 16 * timeFactor;
+      let baseSpeed = 9;
+      let damage = 8 * timeFactor;
+
+      if (t === 1) { // crawler
+        baseHp = 18 * timeFactor;
+        baseSpeed = 11;
+        damage = 9 * timeFactor;
+      } else if (t === 2) { // sentinel
+        baseHp = 20 * timeFactor;
+        baseSpeed = 7;
+        damage = 12 * timeFactor;
+      } else if (t === 3) { // hopper
+        baseHp = 12 * timeFactor;
+        baseSpeed = 12;
+        damage = 10 * timeFactor;
+      }
 
       enemies.push({
         x,
         z,
-        y: 1.1,
         radius,
         speed: baseSpeed,
         hp: baseHp,
@@ -1016,6 +1233,7 @@
         type: t,
         mesh,
         fireCooldown: 1.5 + Math.random(),
+        hopTimer: 0
       });
     }
 
@@ -1033,10 +1251,13 @@
 
       const startX = origin ? origin.x : player.x;
       const startZ = origin ? origin.z : player.z;
+      const startY = origin
+        ? terrainHeight(origin.x, origin.z) + 2
+        : player.y;
 
       mesh.position.set(
         startX + n.x * 1.8,
-        1.1,
+        startY,
         startZ + n.z * 1.8
       );
       scene.add(mesh);
@@ -1066,7 +1287,8 @@
         roughness: 0.35,
       });
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(x, 0.7, z);
+      const groundY = terrainHeight(x, z);
+      mesh.position.set(x, groundY + 0.7, z);
       scene.add(mesh);
 
       xpOrbs.push({
@@ -1087,31 +1309,64 @@
     }
 
     // === UPDATE ===
+    function tryJump() {
+      if (!player.onGround || gameState !== "playing") return;
+      player.vy = 18;
+      player.onGround = false;
+      playJump();
+    }
+
     function updatePlayer(dt) {
-      let moveX = 0;
-      let moveZ = 0;
+      // Kamera bazlı yön
+      const forwardVec = normalize2(
+        player.x - camera.position.x,
+        player.z - camera.position.z
+      );
+      const rightVec = { x: -forwardVec.z, z: forwardVec.x };
 
-      if (keyState.up) moveZ -= 1;
-      if (keyState.down) moveZ += 1;
-      if (keyState.left) moveX -= 1;
-      if (keyState.right) moveX += 1;
+      let localX = 0;
+      let localZ = 0;
+      if (keyState.left) localX -= 1;
+      if (keyState.right) localX += 1;
+      if (keyState.up) localZ += 1;
+      if (keyState.down) localZ -= 1;
 
-      moveX += joystickVec.x;
-      moveZ += joystickVec.z;
+      // Joystick'i de ekle
+      localX += joystickVec.x;
+      localZ += joystickVec.z;
 
-      if (moveX !== 0 || moveZ !== 0) {
-        const n = normalize2(moveX, moveZ);
-        player.x += n.x * player.speed * dt;
-        player.z += n.z * player.speed * dt;
+      if (localX !== 0 || localZ !== 0) {
+        const len = Math.hypot(localX, localZ) || 1;
+        localX /= len;
+        localZ /= len;
 
-        if (player.mesh) {
-          const angle = Math.atan2(n.x, n.z);
-          player.mesh.rotation.y = angle;
-        }
+        const moveXWorld = forwardVec.x * localZ + rightVec.x * localX;
+        const moveZWorld = forwardVec.z * localZ + rightVec.z * localX;
+
+        player.x += moveXWorld * player.speed * dt;
+        player.z += moveZWorld * player.speed * dt;
+
+        const angle = Math.atan2(moveXWorld, moveZWorld);
+        if (player.mesh) player.mesh.rotation.y = angle;
       }
 
       player.x = clamp(player.x, -WORLD_SIZE / 2 + 3, WORLD_SIZE / 2 - 3);
       player.z = clamp(player.z, -WORLD_SIZE / 2 + 3, WORLD_SIZE / 2 - 3);
+
+      // Zıplama / yer çekimi
+      const groundY = terrainHeight(player.x, player.z) + 2.2;
+      player.vy -= 36 * dt;
+      player.jumpOffset += player.vy * dt;
+
+      if (groundY + player.jumpOffset <= groundY) {
+        player.jumpOffset = 0;
+        player.vy = 0;
+        player.onGround = true;
+      } else {
+        player.onGround = false;
+      }
+
+      player.y = groundY + player.jumpOffset;
 
       if (player.mesh) {
         player.mesh.position.set(player.x, player.y, player.z);
@@ -1133,29 +1388,22 @@
         let vx = dir.x * e.speed;
         let vz = dir.z * e.speed;
 
-        // Farklı davranışlar
-        if (e.type === 1) {
-          // fast cube - bazen dash
-          const dashPhase = Math.sin(elapsedTime * 4 + i);
-          if (dashPhase > 0.7 && dist > 8) {
-            vx *= 2.2;
-            vz *= 2.2;
-          } else {
-            vx *= 1.5;
-            vz *= 1.5;
-          }
-        } else if (e.type === 2) {
-          // tank - yavaş ama push
+        if (e.type === 0) {
+          // Walker: insansı, yaklaşırken hafif zigzag
           const side = normalize2(-dir.z, dir.x);
-          const sway = Math.sin(elapsedTime * 2 + i) * 0.5;
+          const sway = Math.sin(elapsedTime * 4 + i) * 0.6;
           vx += side.x * e.speed * 0.4 * sway;
           vz += side.z * e.speed * 0.4 * sway;
-        } else if (e.type === 3) {
-          // turret - belli mesafede dur ve ateş et
-          if (dist > 18) {
-            vx *= 1.3;
-            vz *= 1.3;
-          } else if (dist < 10) {
+        } else if (e.type === 1) {
+          // Crawler: hızlı, düz koşar
+          vx *= 1.6;
+          vz *= 1.6;
+        } else if (e.type === 2) {
+          // Sentinel: orta mesafede durup ateş eder
+          if (dist > 22) {
+            vx *= 1.2;
+            vz *= 1.2;
+          } else if (dist < 12) {
             vx *= -0.8;
             vz *= -0.8;
           } else {
@@ -1164,9 +1412,19 @@
           }
 
           e.fireCooldown -= dt;
-          if (e.fireCooldown <= 0 && dist < 45) {
-            spawnBullet(dx, dz, false, { x: e.x, z: e.z }, 26);
-            e.fireCooldown = 2.2 + Math.random() * 1.2;
+          if (e.fireCooldown <= 0 && dist < 50) {
+            spawnBullet(dx, dz, false, { x: e.x, z: e.z }, 28);
+            e.fireCooldown = 2.2 + Math.random() * 1.4;
+          }
+        } else if (e.type === 3) {
+          // Hopper: zıplayarak yaklaşır
+          e.hopTimer -= dt;
+          if (e.hopTimer <= 0) {
+            const hopStrength = 12;
+            const hopDir = normalize2(dx, dz);
+            vx = hopDir.x * (e.speed * 2.4);
+            vz = hopDir.z * (e.speed * 2.4);
+            e.hopTimer = 1.4 + Math.random();
           }
         }
 
@@ -1176,7 +1434,9 @@
         e.x = clamp(e.x, -WORLD_SIZE / 2 + 3, WORLD_SIZE / 2 - 3);
         e.z = clamp(e.z, -WORLD_SIZE / 2 + 3, WORLD_SIZE / 2 - 3);
 
-        e.mesh.position.set(e.x, e.y, e.z);
+        const groundY = terrainHeight(e.x, e.z);
+        const baseY = e.type === 2 ? groundY + 1.8 : groundY + 1.4;
+        e.mesh.position.set(e.x, baseY, e.z);
 
         const dPlayer = Math.hypot(player.x - e.x, player.z - e.z);
         if (dPlayer < player.radius + e.radius) {
@@ -1201,7 +1461,9 @@
         b.x += b.vx * dt;
         b.z += b.vz * dt;
         b.life -= dt;
-        b.mesh.position.set(b.x, 1.1, b.z);
+
+        const y = terrainHeight(b.x, b.z) + (b.fromPlayer ? 2.1 : 2);
+        b.mesh.position.set(b.x, y, b.z);
 
         if (
           Math.abs(b.x) > WORLD_SIZE / 2 + 8 ||
@@ -1233,7 +1495,6 @@
             }
           }
         } else {
-          // düşman mermileri
           const d = Math.hypot(player.x - b.x, player.z - b.z);
           if (d < player.radius + b.radius) {
             player.hp -= 14;
@@ -1261,7 +1522,8 @@
           const n = normalize2(dx, dz);
           orb.x += n.x * pull;
           orb.z += n.z * pull;
-          orb.mesh.position.set(orb.x, 0.7, orb.z);
+          const y = terrainHeight(orb.x, orb.z) + 0.7;
+          orb.mesh.position.set(orb.x, y, orb.z);
         }
 
         if (dist < player.radius + orb.radius) {
@@ -1312,20 +1574,57 @@
     }
 
     function updateCamera(dt) {
-      const target = new THREE.Vector3(player.x, 42, player.z + 50);
-      camera.position.lerp(target, cameraFollowSmooth);
-      camera.lookAt(player.x, 0, player.z);
+      const distance = 58;
+      const height = 40;
+
+      const targetPos = new THREE.Vector3(
+        player.x + Math.sin(cameraYaw) * distance,
+        player.y + height,
+        player.z + Math.cos(cameraYaw) * distance
+      );
+      camera.position.lerp(targetPos, cameraFollowSmooth);
+      camera.lookAt(player.x, player.y + 3, player.z);
+    }
+
+    function updateDayNight(dt) {
+      dayTime += dt / DAY_LENGTH;
+      const phase = dayTime % 1; // 0-1
+      const angle = phase * Math.PI * 2;
+
+      const sunY = Math.sin(angle);
+      const brightness = clamp(sunY * 0.5 + 0.5, 0, 1);
+
+      const dayColor = new THREE.Color(0x87ceeb);
+      const nightColor = new THREE.Color(0x020617);
+      const bg = nightColor.clone().lerp(dayColor, brightness);
+      scene.background.copy(bg);
+      scene.fog.color.copy(nightColor.clone().lerp(dayColor, 0.15 + 0.85 * brightness));
+
+      ambientLight.intensity = 0.3 + 0.7 * brightness;
+      sunLight.intensity = 0.2 + 1.4 * brightness;
+
+      sunLight.position.set(
+        Math.cos(angle) * 120,
+        sunY * 120,
+        Math.sin(angle) * 120
+      );
+
+      if (starMaterial) {
+        starMaterial.opacity = 0.2 + (1 - brightness) * 0.8;
+        starMaterial.needsUpdate = true;
+      }
     }
 
     function update(dt) {
       elapsedTime += dt;
 
-      // Enemy spawn
+      // Çok düşman, ama kolay kesilen
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
-        spawnEnemy();
-        const base = 1.8 - elapsedTime * 0.008;
-        spawnTimer = Math.max(0.7, base + Math.random() * 0.7);
+        const batch = 1 + ((elapsedTime / 40) | 0); // zamanla batch artar
+        for (let i = 0; i < batch; i++) spawnEnemy();
+        const base = 1.4 - elapsedTime * 0.01;
+        spawnTimer = Math.max(0.4, base + Math.random() * 0.5);
       }
 
       updatePlayer(dt);
@@ -1341,6 +1640,8 @@
     function loop(now) {
       const dt = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
+
+      updateDayNight(dt);
 
       if (gameState === "playing" && !isPausedForUpgrade) {
         update(dt);
@@ -1376,6 +1677,11 @@
       if (e.code === "KeyS" || e.code === "ArrowDown") keyState.down = true;
       if (e.code === "KeyA" || e.code === "ArrowLeft") keyState.left = true;
       if (e.code === "KeyD" || e.code === "ArrowRight") keyState.right = true;
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        tryJump();
+      }
     });
 
     window.addEventListener("keyup", (e) => {
@@ -1426,7 +1732,7 @@
       const normY = ny / maxDist;
 
       joystickVec.x = normX;
-      joystickVec.z = normY; // yukarı negatif, aşağı pozitif -> Z ekseni
+      joystickVec.z = -normY; // joystick yukarı -> ileri
     }
 
     function joystickEnd(event) {
@@ -1476,6 +1782,10 @@
       requestAnimationFrame(() => {
         startScreen.classList.add("visible");
       });
+    });
+
+    btnJump.addEventListener("click", () => {
+      tryJump();
     });
 
     // === BAŞLAT ===
